@@ -200,33 +200,41 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
 | 组件运行时（起进程 / ready 行握手 / JSON-RPC / 崩溃自愈 / 退出时优雅关停） | ✅ `Services/XSpiderComponent.swift` |
 | JSON → 应用模型（`TwitterPost` / `TwitterUser` / `TwitterMedia` / `ReplyNode` 含深度） | ✅ `Services/XSpiderMapping.swift` |
 | 取数全部走组件（getUser / getFollowing / getUserMedias / getUserTweets / getHomeTimeline / searchTimeline / getTweet / getTweetDetailTree） | ✅ 签名不变，调用方零改动 |
-| 删除已被替代的实现 | ✅ `SearchQueryIdProvider.swift`（queryId 自愈现在在组件里） |
+| 删除已被替代的实现 | ✅ `SearchQueryIdProvider.swift`（queryId 自愈）、`Aria2Engine.swift` + `Aria2RPCClient.swift`（下载引擎，−827 行） |
+| **下载也交给组件**（`dl.enqueue` + `dl.events`/`dl.list` 轮询） | ✅ `DownloadStore` 只算目录与文件名、收尾时做内容校验、写下载记录 |
 | 组件的**外部目录**部署（换文件即换组件） | ✅ `~/Library/Application Support/moe.keli.xspider.mac/XSpiderCore/` |
 
 实测证据（`Tests/XSpiderMacTests/ComponentLiveTests.swift`，`TEST_RUNNER_XSPIDER_LIVE=1` 时跑）：
 
 ```
-Test Case 'testComponentIsReachableAndReportsTransport' passed (0.068 seconds)
-Test Case 'testFetchUserThroughTheAppPath' passed (3.587 seconds)
-Test Case 'testFetchUserMediasThroughTheAppPath' passed (4.294 seconds)
+Test Case 'testComponentIsReachableAndReportsTransport' passed (0.002 seconds)
+Test Case 'testFetchUserThroughTheAppPath'              passed (2.441 seconds)
+Test Case 'testFetchUserMediasThroughTheAppPath'        passed (2.981 seconds)
+Test Case 'testDownloadThroughTheStoreAndComponent'     passed (5.376 seconds)   ← 下载迁移的验收
 ```
+
+应用侧离线测试：**274 条 0 失败**（`xcodebuild test`，live 那 4 条默认跳过）。
 
 另外实测：应用退出后组件进程**一并消失**（无残留）——那正是 `applicationShouldTerminate`
 返回 `.terminateLater` 换来的。
 
 **还没接的**（下一轮，按价值排序）：
 
-1. **下载仍走本机实现**（`Aria2Engine` + `URLSession` + `DownloadStore` 自建队列）。
-   组件的 `dl.*` 与运行时都已就绪，迁移路径见本文 §3.3 与 `docs/07` §3.4；
-   做完之后可删：`Services/Aria2Engine.swift`、`Services/Aria2RPCClient.swift`、
-   `Stores/DownloadStore.swift` 里的调度与续传部分；`FileIntegrity` **保留**（§5.4 的决定）。
-2. **点赞 / 转推 / 书签（`fetch.mutate`）仍在应用侧**：组件尚未实现写操作，所以
+1. **点赞 / 转推 / 书签（`fetch.mutate`）仍在应用侧**：组件尚未实现写操作，所以
    `NetworkClient` / `XClientTransaction` / `RequestGate` 暂时还活着（它们服务这条路径）。
    组件补上 `fetch.mutate` 之后，这三个文件才轮得到删除。
-3. **账户探测**（抓 `x.com` 首页 HTML 取 `screen_name` / 头像）仍是应用侧实现。
+2. **账户探测**（抓 `x.com` 首页 HTML 取 `screen_name` / 头像）仍是应用侧实现。
    组件可以补一个 `auth.whoami`（它为了签名本来就要抓同一个页面），补上之后这块也能删。
-4. 取数侧的旧解析函数（`extractPostsFrom*` / `mapTwitterPost` / `extractReplyNodes` 等）
+3. 取数侧的旧解析函数（`extractPostsFrom*` / `mapTwitterPost` / `extractReplyNodes` 等）
    现在只有测试在引用——随测试一起删，属于"清尾"。
+
+**这一步踩到的第三个坑（值得单独记）**：迁移后一条既有的计时测试开始失败
+（基线 3.9s 通过 → 迁移后 30.5s）。根因不是新代码慢，而是我把 `configure` 里的
+`client.invalidate()` 一并删了——**还有两条路在用本机的 `NetworkClient`**
+（关注态查询、账户探测），旧连接池没人关，于是一条失败的后台重试一直占着**请求闸门**，
+把同一闸门下的其它请求拖到超时。
+教训：**"这个模块已经没人用了"要按引用数核对，不能按感觉**；删一层实现时，
+先 grep 谁还在用它的资源管理代码。
 
 **这一轮踩到的两个 Swift 6 细节**（下次接入别的外壳也会撞上）：
 
