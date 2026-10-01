@@ -89,6 +89,7 @@ fn build_engine(args: &Args) -> Result<Engine, String> {
 async fn serve(args: Args, engine: Engine) -> Result<(), String> {
     let shutdown = Arc::new(Notify::new());
     spawn_signal_handlers(shutdown.clone());
+    spawn_parent_watchdog(shutdown.clone());
 
     if args.stdio {
         // stdio 模式下 stdout 只走 JSON Lines，ready 行改到 stderr 做诊断
@@ -132,6 +133,41 @@ fn init_tracing() {
         )
         .try_init();
 }
+
+/// **父进程看门狗**：外壳被强杀（SIGKILL / 崩溃）时，组件不能变成孤儿。
+///
+/// 为什么必须有：外壳正常退出会调 `system.shutdown`，但**强杀不会**——
+/// 而强杀是常态（开发时改代码、调试器停进程、测试宿主被 xcodebuild 收走）。
+/// 实测：应用被 SIGKILL 之后，`xspiderd` 仍然活着，下一次启动就会多出一个，
+/// 累积起来就是"一堆没人管的组件在后台跑"。
+///
+/// 原理不需要额外机制：父进程一死，子进程会被 reparent 到 `launchd`(pid 1)，
+/// 于是 `parent_id()` 变了。`launchd` 直接拉起的实例（parent == 1）不看门。
+///
+/// 这是 `docs/05-WORKFLOW.md` §6 "子进程必须跟随父进程退出"那条纪律的组件侧实现，
+/// 与"交给 aria2 的 `--stop-with-process`"是两件事：那条管的是组件的子进程。
+#[cfg(unix)]
+fn spawn_parent_watchdog(shutdown: Arc<Notify>) {
+    let original = std::os::unix::process::parent_id();
+    if original <= 1 {
+        // 由 launchd 直接拉起（不是谁的子进程），没有"父进程"可看
+        return;
+    }
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let now = std::os::unix::process::parent_id();
+            if now != original {
+                tracing::warn!(original, now, "父进程已消失，组件自行退出（避免留下孤儿）");
+                shutdown.notify_waiters();
+                return;
+            }
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn spawn_parent_watchdog(_shutdown: Arc<Notify>) {}
 
 fn spawn_signal_handlers(shutdown: Arc<Notify>) {
     tokio::spawn(async move {
