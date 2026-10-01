@@ -11,7 +11,7 @@
 >
 > 本册不是开发日志：这里只写**当前版本的事实**。变更历史见 [`CHANGELOG.md`](../CHANGELOG.md)。
 
-**版本**：契约 `1.4.0` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
+**版本**：契约 `1.5.0` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ```bash
 $ xspiderd --port 0
-ready {"port":49152,"token":"…","version":"1.4.0","build":"0.1.0"}     # ← stdout，只有这一行
+ready {"port":49152,"token":"…","version":"1.5.0","build":"0.1.0"}     # ← stdout，只有这一行
 
 # 另开一个终端（port / token 用上面这一行里的）
 $ curl -s http://127.0.0.1:49152/ \
@@ -160,7 +160,7 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 ## 3. cdylib 形态
 
 ```c
-char* xspider_version(void);                                  // "1.4.0"
+char* xspider_version(void);                                  // "1.5.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放上面两个函数返回的字符串
 ```
@@ -187,7 +187,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 **出参**
 
 ```json
-{ "contract_version": "1.4.0", "build_version": "0.1.0", "transport": "sidecar" }
+{ "contract_version": "1.5.0", "build_version": "0.1.0", "transport": "sidecar" }
 ```
 
 | 字段 | 说明 |
@@ -553,6 +553,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
                     "url": "https://…", "ext": "mp4", "size_hint": null,
                     "created_at": "2026-09-25T01:33:31Z", "screen_name": "tesla",
                     "day": "2026-09-25" } ],
+  "posts": [ { …完整的 post… } ],
   "pages": 3, "raw_items": 60,
   "dropped": { "dropped_duplicate": 4, "dropped_by_date": 12, "dropped_by_type": 3,
                "dropped_no_media": 20, "dropped_name": 0 },
@@ -562,7 +563,8 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | 字段 | 说明 |
 |---|---|
 | `done_reason` | **为什么停的**（见下表）。必读 |
-| `candidates[]` | 候选媒体（形状见 §5.7） |
+| `candidates[]` | 候选媒体（形状见 §5.7）；**只有 URL 与几个标量** |
+| `posts[]` | 这一轮保留的**完整推文**（就是 §5.3 的 `post`），与 `candidates` 是同一批数据的两个视角、按服务端顺序、按 id 去重。**要按文件名模板命名、要把任务写进自己的历史记录，就用它**——候选里没有正文/作者昵称/标签/媒体宽高/页内序号 |
 | `pages` | 翻了几页（含空页） |
 | `raw_items` | 服务端给的原始条目数（**到底判据只看它**，不看筛选后的） |
 | `dropped` | 各类丢弃计数，排查"这次为什么没东西"用 |

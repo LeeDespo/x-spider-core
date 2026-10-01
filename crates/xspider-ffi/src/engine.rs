@@ -404,12 +404,24 @@ impl Engine {
         let fetch = self.fetch.clone();
         let page_size = strategy.limits.page_size;
         let cancel_for_source = cancel.clone();
+        // 顺手把**每页的完整推文**留下来。
+        //
+        // 为什么需要：候选（`Candidate`）是**有损**的——只有 url / ext / 几个标量，
+        // 而外壳要按用户的文件名模板给文件命名、还要把任务写进自己的历史记录，
+        // 那些都要推文的正文、作者昵称/id、标签、媒体宽高与"这一页里排第几"。
+        // 少了它，`crawl.run` 对任何"要命名/要记账"的外壳都是不可用的，
+        // 而这类外壳恰恰是主流（第一个真实消费方 CLI 不需要名字，所以没暴露这个问题）。
+        // 爬取组件本身**刻意不认识 `Post`**（两个组件不互相依赖），所以拼接放在这一层。
+        let collected: Arc<std::sync::Mutex<Vec<xspider_fetch::Post>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let collected_for_source = collected.clone();
         let source_fn: PageSource = Arc::new(move |page_cursor: Option<String>| {
             let fetch = fetch.clone();
             let cancel = cancel_for_source.clone();
             let user_id = user_id.clone();
             let source = source.clone();
             let cursor = page_cursor.or_else(|| cursor.clone());
+            let collected = collected_for_source.clone();
             Box::pin(async move {
                 let page = match source.as_str() {
                     "medias" => {
@@ -435,6 +447,9 @@ impl Engine {
                         )))
                     }
                 };
+                if let Ok(mut keep) = collected.lock() {
+                    keep.extend(page.items.iter().cloned());
+                }
                 Ok(Page::new(
                     page.items.into_iter().map(to_crawl_post).collect(),
                     page.cursor,
@@ -450,6 +465,26 @@ impl Engine {
         })
         .await?;
 
+        // `posts` = 这一轮**保留了**的推文（即产出了候选的那些），按服务端顺序、按 id 去重。
+        // 与 `candidates` 是同一批数据的两个视角：
+        //   `candidates` 给"只要 URL"的消费方；`posts` 给"要命名 / 要记账"的外壳。
+        let fetched = collected
+            .lock()
+            .map(|mut keep| std::mem::take(&mut *keep))
+            .unwrap_or_default();
+        let with_candidates: std::collections::HashSet<&str> = outcome
+            .candidates
+            .iter()
+            .map(|c| c.post_id.as_str())
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        let posts: Vec<xspider_fetch::Post> = fetched
+            .into_iter()
+            .filter(|post| {
+                with_candidates.contains(post.id.as_str()) && seen.insert(post.id.clone())
+            })
+            .collect();
+
         let (seq, events) = self
             .crawl_log
             .lock()
@@ -458,6 +493,7 @@ impl Engine {
         Ok(serde_json::json!({
             "done_reason": outcome.done_reason,
             "candidates": outcome.candidates,
+            "posts": posts,
             "pages": outcome.pages,
             "raw_items": outcome.raw_items,
             "dropped": outcome.dropped,
@@ -898,6 +934,77 @@ mod tests {
         let err = call("net.probe_size", json!({})).await.unwrap_err();
         assert_eq!(err.code(), xspider_core::error::ErrorCode::InvalidRequest);
         assert!(err.to_string().contains("url"), "{err}");
+    }
+
+    /// `crawl.run` 除了候选，还要给**完整推文**。
+    ///
+    /// 这条钉的是一个真实的设计缺口：候选（`Candidate`）是**有损**的，只有 url 与几个标量，
+    /// 而外壳要按用户的文件名模板命名、把任务写进自己的历史记录，需要正文、作者、标签、
+    /// 媒体宽高与页内序号。少了 `posts`，`crawl.run` 对任何"要命名/要记账"的外壳都不可用
+    /// ——第一个消费方是 CLI（它不要名字），所以这个问题直到接真实外壳才暴露。
+    #[tokio::test]
+    async fn crawl_returns_full_posts_alongside_candidates() {
+        use xspider_core::creds::Credentials;
+
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+        let stack = HttpStack::replay(&dir).expect("fixture 目录应当存在");
+        // 回放的路由要求"带凭据"（fixture 是按这个条件录的），给一份假凭据即可
+        stack.set_credentials(Some(
+            Credentials::from_cookie("auth_token=fixture; ct0=fixture", None).unwrap(),
+        ));
+        let engine = Engine::with_stack(stack);
+
+        let v = engine
+            .call(
+                "crawl.run",
+                &json!({
+                    "source": "medias",
+                    "user_id": "13298072",
+                    // 只跑一页：这条例外测的是"同一轮里 posts 与 candidates 对得上"，
+                    // 翻页与终止判据由 xspider-download 的测试覆盖。
+                    "strategy": { "limits": { "page_size": 20, "max_pages": 1 } }
+                }),
+            )
+            .await
+            .expect("回放跑一轮爬取应当成功");
+
+        let candidates = v["candidates"].as_array().expect("有候选");
+        let posts = v["posts"].as_array().expect("有完整推文");
+        assert!(!candidates.is_empty(), "这页 fixture 本来就带媒体");
+        assert!(!posts.is_empty(), "posts 必须一并给出");
+
+        // 每个候选的 post_id 都要能在 posts 里找到（否则外壳拿不到"这是哪条推文"）
+        let ids: std::collections::HashSet<&str> = posts
+            .iter()
+            .map(|p| p["id"].as_str().expect("post.id"))
+            .collect();
+        for c in candidates {
+            let post_id = c["post_id"].as_str().expect("candidate.post_id");
+            assert!(ids.contains(post_id), "候选 {post_id} 在 posts 里找不到");
+        }
+
+        // posts 里必须有候选**没有**的那些字段——这正是它存在的理由
+        let first = &posts[0];
+        for field in ["full_text", "author", "id"] {
+            assert!(!first[field].is_null(), "post 缺少 {field}");
+        }
+        assert!(
+            !first["full_text"].as_str().unwrap_or("").is_empty(),
+            "正文不能是空的：文件名模板的 CONTENT、历史记录都要用它"
+        );
+        assert!(
+            first["author"]["screen_name"].as_str().is_some(),
+            "作者要能取到（模板的 USER_NAME / USER_ID 用它）"
+        );
+
+        // 同一批数据的两个视角：posts 里的推文必须至少产出一个候选
+        for p in posts {
+            let id = p["id"].as_str().unwrap();
+            assert!(
+                candidates.iter().any(|c| c["post_id"].as_str() == Some(id)),
+                "posts 里出现了没有候选的推文：{id}"
+            );
+        }
     }
 
     #[tokio::test]

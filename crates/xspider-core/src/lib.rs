@@ -46,7 +46,7 @@ pub use transport::{HttpMethod, HttpRequest, HttpResponse, Transport};
 /// 对外契约版本（`xspider_version()` 的返回值）。
 ///
 /// 语义化版本；**method 与字段只增不改不删**（见 `docs/CONTRACT.md` §版本与兼容）。
-pub const CONTRACT_VERSION: &str = "1.4.0";
+pub const CONTRACT_VERSION: &str = "1.5.0";
 
 /// 本仓库的构建版本（用于日志与排障，不参与握手）。
 pub const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.4.0**（由 `xspider_version()` 返回）
+> 契约版本：**1.5.0**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.4.0"
+char* xspider_version(void);                            // "1.5.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.4.0","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.5.0","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,7 +96,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.4.0）
+### 3.1 已实现（1.5.0）
 
 | method | 请求 | 响应 |
 |---|---|---|
@@ -123,7 +123,7 @@ HTTP 状态只表达"传输层发生了什么"：
 | `dl.list` | `{}` | `{jobs[]}` |
 | `dl.events` | `{since?}` | `{seq, events[]}` |
 | `dl.prune` | `{}` | `{ok}` |
-| `crawl.run` | `{source, user_id, cursor?, strategy?}` | `{done_reason, candidates[], pages, raw_items, dropped, next_cursor?, seq, events[]}` |
+| `crawl.run` | `{source, user_id, cursor?, strategy?}` | `{done_reason, candidates[], posts[], pages, raw_items, dropped, next_cursor?, seq, events[]}` |
 
 ### 3.2 sidecar 传输层 method（不属于契约载荷）
 
@@ -425,6 +425,10 @@ HTTP 状态只表达"传输层发生了什么"：
 
 - 产出**候选清单**（`candidates[]`：url / ext / size_hint / day / screen_name），
   外壳决定下不下、叫什么名、放哪儿，再调 `dl.enqueue`——**两个组件不直接对接**；
+- **同时给出 `posts[]`**（同一批推文的**完整 DTO**，按服务端顺序、按 id 去重）。
+  候选是**有损**的，只有 url 与几个标量；而按用户的文件名模板命名、把任务写进外壳自己的
+  历史记录，都要正文、作者昵称/id、标签、媒体宽高与页内序号。两者是同一批数据的两个视角：
+  只要 URL 的消费方读 `candidates`，要命名/要记账的外壳读 `posts`；
 - **`done_reason` 必须显式**（见 §下表）。「翻到服务端尽头」与「被策略提前终止」
   是两种语义，外壳靠它决定文案与下次是否续爬；
 - **`wanted_keys` 进契约、`excluded_keys` 不进**：前者改变翻页终止条件（省请求，成本相关）；
