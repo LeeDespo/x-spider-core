@@ -1,0 +1,1284 @@
+{
+  "endpoint": "user_medias",
+  "scenario": "page1",
+  "captured_at": "2026-10-01",
+  "note": "真实响应经 script/redact_fixtures.py 脱敏；结构完整、个人数据已替换为固定假值（见 docs/04 §2.1）",
+  "match": {
+    "method": "GET",
+    "operation": "UserMedia",
+    "auth": "valid",
+    "cursor": "absent"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-transaction-id": "REDACTED",
+      "x-rate-limit-limit": "500",
+      "x-rate-limit-reset": "1790832226",
+      "x-rate-limit-remaining": "499"
+    },
+    "body": {
+      "data": {
+        "user": {
+          "result": {
+            "__typename": "User",
+            "timeline_v2": {
+              "timeline": {
+                "instructions": [
+                  {
+                    "type": "TimelineClearCache"
+                  },
+                  {
+                    "direction": "Top",
+                    "type": "TimelineTerminateTimeline"
+                  },
+                  {
+                    "entries": [
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineModule",
+                          "clientEventInfo": {
+                            "component": "profile-media"
+                          },
+                          "displayType": "VerticalGrid",
+                          "entryType": "TimelineTimelineModule",
+                          "items": [
+                            {
+                              "entryId": "profile-grid-0-tweet-9654327270705496589",
+                              "item": {
+                                "itemContent": {
+                                  "__typename": "TimelineTweet",
+                                  "itemType": "TimelineTweet",
+                                  "tweetDisplayType": "MediaGrid",
+                                  "tweet_results": {
+                                    "result": {
+                                      "__typename": "Tweet",
+                                      "core": {
+                                        "user_results": {
+                                          "result": {
+                                            "__typename": "User",
+                                            "affiliates_highlighted_label": {},
+                                            "has_graduated_access": true,
+                                            "has_nft_avatar": false,
+                                            "id": "redacted-832ad90c",
+                                            "is_blue_verified": true,
+                                            "legacy": {
+                                              "blocked_by": false,
+                                              "blocking": false,
+                                              "can_dm": true,
+                                              "can_media_tag": true,
+                                              "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                              "default_profile": false,
+                                              "default_profile_image": false,
+                                              "description": "REDACTED demo bio for fixture testing purposes only.",
+                                              "entities": {
+                                                "description": {},
+                                                "url": {
+                                                  "urls": [
+                                                    {
+                                                      "display_url": "https://example.invalid/redacted",
+                                                      "expanded_url": "https://example.invalid/redacted",
+                                                      "indices": [
+                                                        0,
+                                                        23
+                                                      ],
+                                                      "url": "https://example.invalid/redacted"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "fast_followers_count": 0,
+                                              "favourites_count": 90,
+                                              "follow_request_sent": false,
+                                              "followed_by": false,
+                                              "followers_count": 12,
+                                              "following": false,
+                                              "friends_count": 34,
+                                              "has_custom_timelines": true,
+                                              "is_translator": false,
+                                              "listed_count": 1,
+                                              "location": "",
+                                              "media_count": 56,
+                                              "muting": false,
+                                              "name": "Demo User",
+                                              "needs_phone_verification": false,
+                                              "normal_followers_count": 12,
+                                              "notifications": false,
+                                              "pinned_tweet_ids_str": [
+                                                "5218727870721098907"
+                                              ],
+                                              "possibly_sensitive": false,
+                                              "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_image_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_interstitial_type": "",
+                                              "protected": false,
+                                              "screen_name": "demo_user",
+                                              "statuses_count": 78,
+                                              "time_zone": "",
+                                              "translator_type": "none",
+                                              "url": "https://example.invalid/redacted",
+                                              "utc_offset": 0,
+                                              "verified": false,
+                                              "verified_type": "Business",
+                                              "want_retweets": false,
+                                              "withheld_description": "",
+                                              "withheld_scope": ""
+                                            },
+                                            "professional": {
+                                              "category": [],
+                                              "professional_type": "Business",
+                                              "rest_id": "9078527630165058127"
+                                            },
+                                            "profile_image_shape": "Square",
+                                            "rest_id": "50909294",
+                                            "super_follow_eligible": false,
+                                            "super_followed_by": false,
+                                            "super_following": false
+                                          }
+                                        }
+                                      },
+                                      "edit_control": {
+                                        "edit_tweet_ids": [
+                                          "9654327270705496589"
+                                        ],
+                                        "editable_until_msecs": "7276125096343",
+                                        "edits_remaining": "5",
+                                        "is_edit_eligible": true
+                                      },
+                                      "is_translatable": false,
+                                      "legacy": {
+                                        "bookmark_count": 0,
+                                        "bookmarked": false,
+                                        "conversation_id_str": "9654327270705496589",
+                                        "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                        "display_text_range": [
+                                          0,
+                                          17
+                                        ],
+                                        "entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "5258521678307258361",
+                                              "indices": [
+                                                18,
+                                                41
+                                              ],
+                                              "media_key": "13_5258521678307258361",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 1080,
+                                                "width": 1920
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 1080,
+                                                  "resize": "fit",
+                                                  "w": 1920
+                                                },
+                                                "medium": {
+                                                  "h": 675,
+                                                  "resize": "fit",
+                                                  "w": 1200
+                                                },
+                                                "small": {
+                                                  "h": 383,
+                                                  "resize": "fit",
+                                                  "w": 680
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  16,
+                                                  9
+                                                ],
+                                                "duration_millis": 8750,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 256000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 832000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "extended_entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "5258521678307258361",
+                                              "indices": [
+                                                18,
+                                                41
+                                              ],
+                                              "media_key": "13_5258521678307258361",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 1080,
+                                                "width": 1920
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 1080,
+                                                  "resize": "fit",
+                                                  "w": 1920
+                                                },
+                                                "medium": {
+                                                  "h": 675,
+                                                  "resize": "fit",
+                                                  "w": 1200
+                                                },
+                                                "small": {
+                                                  "h": 383,
+                                                  "resize": "fit",
+                                                  "w": 680
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  16,
+                                                  9
+                                                ],
+                                                "duration_millis": 8750,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 256000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 832000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "favorite_count": 0,
+                                        "favorited": false,
+                                        "full_text": "REDACTED post text.",
+                                        "id_str": "9654327270705496589",
+                                        "is_quote_status": false,
+                                        "lang": "en",
+                                        "possibly_sensitive": false,
+                                        "possibly_sensitive_editable": true,
+                                        "quote_count": 0,
+                                        "reply_count": 0,
+                                        "retweet_count": 0,
+                                        "retweeted": false,
+                                        "user_id_str": "50909294"
+                                      },
+                                      "rest_id": "9654327270705496589",
+                                      "unmention_data": {},
+                                      "views": {
+                                        "count": "9644983",
+                                        "state": "EnabledWithCount"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "entryId": "profile-grid-0-tweet-1129856949654125454",
+                              "item": {
+                                "itemContent": {
+                                  "__typename": "TimelineTweet",
+                                  "itemType": "TimelineTweet",
+                                  "tweetDisplayType": "MediaGrid",
+                                  "tweet_results": {
+                                    "result": {
+                                      "__typename": "Tweet",
+                                      "core": {
+                                        "user_results": {
+                                          "result": {
+                                            "__typename": "User",
+                                            "affiliates_highlighted_label": {},
+                                            "has_graduated_access": true,
+                                            "has_nft_avatar": false,
+                                            "id": "redacted-832ad90c",
+                                            "is_blue_verified": true,
+                                            "legacy": {
+                                              "blocked_by": false,
+                                              "blocking": false,
+                                              "can_dm": true,
+                                              "can_media_tag": true,
+                                              "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                              "default_profile": false,
+                                              "default_profile_image": false,
+                                              "description": "REDACTED demo bio for fixture testing purposes only.",
+                                              "entities": {
+                                                "description": {},
+                                                "url": {
+                                                  "urls": [
+                                                    {
+                                                      "display_url": "https://example.invalid/redacted",
+                                                      "expanded_url": "https://example.invalid/redacted",
+                                                      "indices": [
+                                                        0,
+                                                        23
+                                                      ],
+                                                      "url": "https://example.invalid/redacted"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "fast_followers_count": 0,
+                                              "favourites_count": 90,
+                                              "follow_request_sent": false,
+                                              "followed_by": false,
+                                              "followers_count": 12,
+                                              "following": false,
+                                              "friends_count": 34,
+                                              "has_custom_timelines": true,
+                                              "is_translator": false,
+                                              "listed_count": 1,
+                                              "location": "",
+                                              "media_count": 56,
+                                              "muting": false,
+                                              "name": "Demo User",
+                                              "needs_phone_verification": false,
+                                              "normal_followers_count": 12,
+                                              "notifications": false,
+                                              "pinned_tweet_ids_str": [
+                                                "5218727870721098907"
+                                              ],
+                                              "possibly_sensitive": false,
+                                              "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_image_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_interstitial_type": "",
+                                              "protected": false,
+                                              "screen_name": "demo_user",
+                                              "statuses_count": 78,
+                                              "time_zone": "",
+                                              "translator_type": "none",
+                                              "url": "https://example.invalid/redacted",
+                                              "utc_offset": 0,
+                                              "verified": false,
+                                              "verified_type": "Business",
+                                              "want_retweets": false,
+                                              "withheld_description": "",
+                                              "withheld_scope": ""
+                                            },
+                                            "professional": {
+                                              "category": [],
+                                              "professional_type": "Business",
+                                              "rest_id": "9078527630165058127"
+                                            },
+                                            "profile_image_shape": "Square",
+                                            "rest_id": "50909294",
+                                            "super_follow_eligible": false,
+                                            "super_followed_by": false,
+                                            "super_following": false
+                                          }
+                                        }
+                                      },
+                                      "edit_control": {
+                                        "edit_tweet_ids": [
+                                          "1129856949654125454"
+                                        ],
+                                        "editable_until_msecs": "4701272361634",
+                                        "edits_remaining": "5",
+                                        "is_edit_eligible": false
+                                      },
+                                      "is_translatable": false,
+                                      "legacy": {
+                                        "bookmark_count": 0,
+                                        "bookmarked": false,
+                                        "conversation_id_str": "1129856949654125454",
+                                        "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                        "display_text_range": [
+                                          0,
+                                          183
+                                        ],
+                                        "entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "8987492927298323292",
+                                              "indices": [
+                                                184,
+                                                207
+                                              ],
+                                              "media_key": "13_8987492927298323292",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 3840,
+                                                "width": 2160
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 2048,
+                                                  "resize": "fit",
+                                                  "w": 1152
+                                                },
+                                                "medium": {
+                                                  "h": 1200,
+                                                  "resize": "fit",
+                                                  "w": 675
+                                                },
+                                                "small": {
+                                                  "h": 680,
+                                                  "resize": "fit",
+                                                  "w": 383
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  9,
+                                                  16
+                                                ],
+                                                "duration_millis": 64066,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 632000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 950000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ],
+                                          "user_mentions": [
+                                            {
+                                              "id_str": "6387890161296545032",
+                                              "indices": [
+                                                1,
+                                                6
+                                              ],
+                                              "name": "Demo User",
+                                              "screen_name": "demo_user"
+                                            }
+                                          ]
+                                        },
+                                        "extended_entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "8987492927298323292",
+                                              "indices": [
+                                                184,
+                                                207
+                                              ],
+                                              "media_key": "13_8987492927298323292",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 3840,
+                                                "width": 2160
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 2048,
+                                                  "resize": "fit",
+                                                  "w": 1152
+                                                },
+                                                "medium": {
+                                                  "h": 1200,
+                                                  "resize": "fit",
+                                                  "w": 675
+                                                },
+                                                "small": {
+                                                  "h": 680,
+                                                  "resize": "fit",
+                                                  "w": 383
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  9,
+                                                  16
+                                                ],
+                                                "duration_millis": 64066,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 632000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 950000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "favorite_count": 0,
+                                        "favorited": false,
+                                        "full_text": "REDACTED post text.",
+                                        "id_str": "1129856949654125454",
+                                        "is_quote_status": false,
+                                        "lang": "en",
+                                        "possibly_sensitive": false,
+                                        "possibly_sensitive_editable": true,
+                                        "quote_count": 0,
+                                        "reply_count": 0,
+                                        "retweet_count": 0,
+                                        "retweeted": false,
+                                        "user_id_str": "50909294"
+                                      },
+                                      "rest_id": "1129856949654125454",
+                                      "unmention_data": {},
+                                      "views": {
+                                        "count": "8064160",
+                                        "state": "EnabledWithCount"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "entryId": "profile-grid-0-tweet-1783834725834107858",
+                              "item": {
+                                "itemContent": {
+                                  "__typename": "TimelineTweet",
+                                  "itemType": "TimelineTweet",
+                                  "tweetDisplayType": "MediaGrid",
+                                  "tweet_results": {
+                                    "result": {
+                                      "__typename": "Tweet",
+                                      "core": {
+                                        "user_results": {
+                                          "result": {
+                                            "__typename": "User",
+                                            "affiliates_highlighted_label": {},
+                                            "has_graduated_access": true,
+                                            "has_nft_avatar": false,
+                                            "id": "redacted-832ad90c",
+                                            "is_blue_verified": true,
+                                            "legacy": {
+                                              "blocked_by": false,
+                                              "blocking": false,
+                                              "can_dm": true,
+                                              "can_media_tag": true,
+                                              "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                              "default_profile": false,
+                                              "default_profile_image": false,
+                                              "description": "REDACTED demo bio for fixture testing purposes only.",
+                                              "entities": {
+                                                "description": {},
+                                                "url": {
+                                                  "urls": [
+                                                    {
+                                                      "display_url": "https://example.invalid/redacted",
+                                                      "expanded_url": "https://example.invalid/redacted",
+                                                      "indices": [
+                                                        0,
+                                                        23
+                                                      ],
+                                                      "url": "https://example.invalid/redacted"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "fast_followers_count": 0,
+                                              "favourites_count": 90,
+                                              "follow_request_sent": false,
+                                              "followed_by": false,
+                                              "followers_count": 12,
+                                              "following": false,
+                                              "friends_count": 34,
+                                              "has_custom_timelines": true,
+                                              "is_translator": false,
+                                              "listed_count": 1,
+                                              "location": "",
+                                              "media_count": 56,
+                                              "muting": false,
+                                              "name": "Demo User",
+                                              "needs_phone_verification": false,
+                                              "normal_followers_count": 12,
+                                              "notifications": false,
+                                              "pinned_tweet_ids_str": [
+                                                "5218727870721098907"
+                                              ],
+                                              "possibly_sensitive": false,
+                                              "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_image_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "profile_interstitial_type": "",
+                                              "protected": false,
+                                              "screen_name": "demo_user",
+                                              "statuses_count": 78,
+                                              "time_zone": "",
+                                              "translator_type": "none",
+                                              "url": "https://example.invalid/redacted",
+                                              "utc_offset": 0,
+                                              "verified": false,
+                                              "verified_type": "Business",
+                                              "want_retweets": false,
+                                              "withheld_description": "",
+                                              "withheld_scope": ""
+                                            },
+                                            "professional": {
+                                              "category": [],
+                                              "professional_type": "Business",
+                                              "rest_id": "9078527630165058127"
+                                            },
+                                            "profile_image_shape": "Square",
+                                            "rest_id": "50909294",
+                                            "super_follow_eligible": false,
+                                            "super_followed_by": false,
+                                            "super_following": false
+                                          }
+                                        }
+                                      },
+                                      "edit_control": {
+                                        "edit_tweet_ids": [
+                                          "1783834725834107858"
+                                        ],
+                                        "editable_until_msecs": "9276329658301",
+                                        "edits_remaining": "5",
+                                        "is_edit_eligible": true
+                                      },
+                                      "is_translatable": false,
+                                      "legacy": {
+                                        "bookmark_count": 0,
+                                        "bookmarked": false,
+                                        "conversation_id_str": "1783834725834107858",
+                                        "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                        "display_text_range": [
+                                          0,
+                                          235
+                                        ],
+                                        "entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "7216967290763478103",
+                                              "indices": [
+                                                236,
+                                                259
+                                              ],
+                                              "media_key": "13_7216967290763478103",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 1350,
+                                                "width": 1080
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 1350,
+                                                  "resize": "fit",
+                                                  "w": 1080
+                                                },
+                                                "medium": {
+                                                  "h": 1200,
+                                                  "resize": "fit",
+                                                  "w": 960
+                                                },
+                                                "small": {
+                                                  "h": 680,
+                                                  "resize": "fit",
+                                                  "w": 544
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  4,
+                                                  5
+                                                ],
+                                                "duration_millis": 53178,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 632000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 950000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "extended_entities": {
+                                          "media": [
+                                            {
+                                              "additional_media_info": {
+                                                "monetizable": false
+                                              },
+                                              "display_url": "https://example.invalid/redacted",
+                                              "expanded_url": "https://example.invalid/redacted",
+                                              "ext_media_availability": {
+                                                "status": "Available"
+                                              },
+                                              "id_str": "7216967290763478103",
+                                              "indices": [
+                                                236,
+                                                259
+                                              ],
+                                              "media_key": "13_7216967290763478103",
+                                              "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                              "original_info": {
+                                                "focus_rects": [],
+                                                "height": 1350,
+                                                "width": 1080
+                                              },
+                                              "sizes": {
+                                                "large": {
+                                                  "h": 1350,
+                                                  "resize": "fit",
+                                                  "w": 1080
+                                                },
+                                                "medium": {
+                                                  "h": 1200,
+                                                  "resize": "fit",
+                                                  "w": 960
+                                                },
+                                                "small": {
+                                                  "h": 680,
+                                                  "resize": "fit",
+                                                  "w": 544
+                                                },
+                                                "thumb": {
+                                                  "h": 150,
+                                                  "resize": "crop",
+                                                  "w": 150
+                                                }
+                                              },
+                                              "type": "video",
+                                              "url": "https://example.invalid/redacted",
+                                              "video_info": {
+                                                "aspect_ratio": [
+                                                  4,
+                                                  5
+                                                ],
+                                                "duration_millis": 53178,
+                                                "variants": [
+                                                  {
+                                                    "content_type": "application/x-mpegURL",
+                                                    "url": "https://video.twimg.com/redacted/demo.jpg"
+                                                  },
+                                                  {
+                                                    "bitrate": 632000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  },
+                                                  {
+                                                    "bitrate": 950000,
+                                                    "content_type": "video/mp4",
+                                                    "url": "https://video.twimg.com/redacted/demo.mp4"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "favorite_count": 0,
+                                        "favorited": false,
+                                        "full_text": "REDACTED post text.",
+                                        "id_str": "1783834725834107858",
+                                        "is_quote_status": true,
+                                        "lang": "en",
+                                        "possibly_sensitive": false,
+                                        "possibly_sensitive_editable": true,
+                                        "quote_count": 0,
+                                        "quoted_status_id_str": "1276901856701496703",
+                                        "quoted_status_permalink": {
+                                          "display": "x.com/Tesla/status/2…",
+                                          "expanded": "https://example.invalid/redacted",
+                                          "url": "https://example.invalid/redacted"
+                                        },
+                                        "reply_count": 0,
+                                        "retweet_count": 0,
+                                        "retweeted": false,
+                                        "user_id_str": "50909294"
+                                      },
+                                      "quoted_status_result": {
+                                        "result": {
+                                          "__typename": "Tweet",
+                                          "core": {
+                                            "user_results": {
+                                              "result": {
+                                                "__typename": "User",
+                                                "affiliates_highlighted_label": {},
+                                                "has_graduated_access": true,
+                                                "has_nft_avatar": false,
+                                                "id": "redacted-832ad90c",
+                                                "is_blue_verified": true,
+                                                "legacy": {
+                                                  "blocked_by": false,
+                                                  "blocking": false,
+                                                  "can_dm": true,
+                                                  "can_media_tag": true,
+                                                  "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                                  "default_profile": false,
+                                                  "default_profile_image": false,
+                                                  "description": "REDACTED demo bio for fixture testing purposes only.",
+                                                  "entities": {
+                                                    "description": {},
+                                                    "url": {
+                                                      "urls": [
+                                                        {
+                                                          "display_url": "https://example.invalid/redacted",
+                                                          "expanded_url": "https://example.invalid/redacted",
+                                                          "indices": [
+                                                            0,
+                                                            23
+                                                          ],
+                                                          "url": "https://example.invalid/redacted"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "fast_followers_count": 0,
+                                                  "favourites_count": 90,
+                                                  "follow_request_sent": false,
+                                                  "followed_by": false,
+                                                  "followers_count": 12,
+                                                  "following": false,
+                                                  "friends_count": 34,
+                                                  "has_custom_timelines": true,
+                                                  "is_translator": false,
+                                                  "listed_count": 1,
+                                                  "location": "",
+                                                  "media_count": 56,
+                                                  "muting": false,
+                                                  "name": "Demo User",
+                                                  "needs_phone_verification": false,
+                                                  "normal_followers_count": 12,
+                                                  "notifications": false,
+                                                  "pinned_tweet_ids_str": [
+                                                    "5218727870721098907"
+                                                  ],
+                                                  "possibly_sensitive": false,
+                                                  "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                                  "profile_image_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                                  "profile_interstitial_type": "",
+                                                  "protected": false,
+                                                  "screen_name": "demo_user",
+                                                  "statuses_count": 78,
+                                                  "time_zone": "",
+                                                  "translator_type": "none",
+                                                  "url": "https://example.invalid/redacted",
+                                                  "utc_offset": 0,
+                                                  "verified": false,
+                                                  "verified_type": "Business",
+                                                  "want_retweets": false,
+                                                  "withheld_description": "",
+                                                  "withheld_scope": ""
+                                                },
+                                                "professional": {
+                                                  "category": [],
+                                                  "professional_type": "Business",
+                                                  "rest_id": "9078527630165058127"
+                                                },
+                                                "profile_image_shape": "Square",
+                                                "rest_id": "50909294",
+                                                "super_follow_eligible": false,
+                                                "super_followed_by": false,
+                                                "super_following": false
+                                              }
+                                            }
+                                          },
+                                          "edit_control": {
+                                            "edit_tweet_ids": [
+                                              "1276901856701496703"
+                                            ],
+                                            "editable_until_msecs": "6749418347210",
+                                            "edits_remaining": "5",
+                                            "is_edit_eligible": true
+                                          },
+                                          "is_translatable": false,
+                                          "legacy": {
+                                            "bookmark_count": 0,
+                                            "bookmarked": false,
+                                            "conversation_id_str": "1276901856701496703",
+                                            "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                            "display_text_range": [
+                                              0,
+                                              278
+                                            ],
+                                            "entities": {
+                                              "media": [
+                                                {
+                                                  "display_url": "https://example.invalid/redacted",
+                                                  "expanded_url": "https://example.invalid/redacted",
+                                                  "ext_media_availability": {
+                                                    "status": "Available"
+                                                  },
+                                                  "features": {
+                                                    "large": {
+                                                      "faces": []
+                                                    },
+                                                    "medium": {
+                                                      "faces": []
+                                                    },
+                                                    "orig": {
+                                                      "faces": []
+                                                    },
+                                                    "small": {
+                                                      "faces": []
+                                                    }
+                                                  },
+                                                  "id_str": "7096905656709090187",
+                                                  "indices": [
+                                                    279,
+                                                    302
+                                                  ],
+                                                  "media_key": "3_7096905656709090187",
+                                                  "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                                  "original_info": {
+                                                    "focus_rects": [
+                                                      {
+                                                        "h": 269,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 138
+                                                      },
+                                                      {
+                                                        "h": 480,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 32
+                                                      },
+                                                      {
+                                                        "h": 547,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 0
+                                                      }
+                                                    ],
+                                                    "height": 640,
+                                                    "width": 480
+                                                  },
+                                                  "sizes": {
+                                                    "large": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "medium": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "small": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "thumb": {
+                                                      "h": 150,
+                                                      "resize": "crop",
+                                                      "w": 150
+                                                    }
+                                                  },
+                                                  "type": "photo",
+                                                  "url": "https://example.invalid/redacted"
+                                                }
+                                              ]
+                                            },
+                                            "extended_entities": {
+                                              "media": [
+                                                {
+                                                  "display_url": "https://example.invalid/redacted",
+                                                  "expanded_url": "https://example.invalid/redacted",
+                                                  "ext_media_availability": {
+                                                    "status": "Available"
+                                                  },
+                                                  "features": {
+                                                    "large": {
+                                                      "faces": []
+                                                    },
+                                                    "medium": {
+                                                      "faces": []
+                                                    },
+                                                    "orig": {
+                                                      "faces": []
+                                                    },
+                                                    "small": {
+                                                      "faces": []
+                                                    }
+                                                  },
+                                                  "id_str": "7096905656709090187",
+                                                  "indices": [
+                                                    279,
+                                                    302
+                                                  ],
+                                                  "media_key": "3_7096905656709090187",
+                                                  "media_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+                                                  "original_info": {
+                                                    "focus_rects": [
+                                                      {
+                                                        "h": 269,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 138
+                                                      },
+                                                      {
+                                                        "h": 480,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 32
+                                                      },
+                                                      {
+                                                        "h": 547,
+                                                        "w": 480,
+                                                        "x": 0,
+                                                        "y": 0
+                                                      }
+                                                    ],
+                                                    "height": 640,
+                                                    "width": 480
+                                                  },
+                                                  "sizes": {
+                                                    "large": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "medium": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "small": {
+                                                      "h": 640,
+                                                      "resize": "fit",
+                                                      "w": 480
+                                                    },
+                                                    "thumb": {
+                                                      "h": 150,
+                                                      "resize": "crop",
+                                                      "w": 150
+                                                    }
+                                                  },
+                                                  "type": "photo",
+                                                  "url": "https://example.invalid/redacted"
+                                                }
+                                              ]
+                                            },
+                                            "favorite_count": 0,
+                                            "favorited": false,
+                                            "full_text": "REDACTED post text.",
+                                            "id_str": "1276901856701496703",
+                                            "is_quote_status": false,
+                                            "lang": "en",
+                                            "possibly_sensitive": false,
+                                            "possibly_sensitive_editable": true,
+                                            "quote_count": 0,
+                                            "reply_count": 0,
+                                            "retweet_count": 0,
+                                            "retweeted": false,
+                                            "user_id_str": "50909294"
+                                          },
+                                          "note_tweet": {
+                                            "is_expandable": true,
+                                            "note_tweet_results": {
+                                              "result": {
+                                                "entity_set": {
+                                                  "hashtags": [],
+                                                  "symbols": [],
+                                                  "urls": [],
+                                                  "user_mentions": []
+                                                },
+                                                "id": "redacted-0a2cd91b",
+                                                "media": {
+                                                  "inline_media": []
+                                                },
+                                                "richtext": {
+                                                  "richtext_tags": [
+                                                    {
+                                                      "from_index": 693,
+                                                      "richtext_types": [
+                                                        "Bold"
+                                                      ],
+                                                      "to_index": 848
+                                                    }
+                                                  ]
+                                                },
+                                                "text": "REDACTED post text."
+                                              }
+                                            }
+                                          },
+                                          "rest_id": "1276901856701496703",
+                                          "source": "<a href=\"https://mobile.twitter.com\" rel=\"nofollow\">Twitter Web App</a>",
+                                          "unmention_data": {},
+                                          "views": {
+                                            "count": "2084755",
+                                            "state": "EnabledWithCount"
+                                          }
+                                        }
+                                      },
+                                      "rest_id": "1783834725834107858",
+                                      "unmention_data": {},
+                                      "views": {
+                                        "count": "4796110",
+                                        "state": "EnabledWithCount"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "entryId": "profile-grid-0",
+                        "sortIndex": "7678561838909434549"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineCursor",
+                          "cursorType": "Top",
+                          "entryType": "TimelineTimelineCursor",
+                          "value": "DAABCgABHThUHHRAJxEKAAIdE326GhqBTwgAAwAAAAEAAA"
+                        },
+                        "entryId": "cursor-top-7650181478145852109",
+                        "sortIndex": "7650181478145852109"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineCursor",
+                          "cursorType": "Bottom",
+                          "entryType": "TimelineTimelineCursor",
+                          "value": "DAABCgABHThUHHQ___0KAAIdE326GhqBTwgAAwAAAAIAAA"
+                        },
+                        "entryId": "cursor-bottom-1014163294325634907",
+                        "sortIndex": "1014163294325634907"
+                      }
+                    ],
+                    "type": "TimelineAddEntries"
+                  }
+                ],
+                "metadata": {
+                  "scribeConfig": {
+                    "page": "media"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "redaction": {
+    "arrays_trimmed": [
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[0].item.itemContent.tweet_results.result.legacy.entities.media[0].video_info.variants：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[0].item.itemContent.tweet_results.result.legacy.extended_entities.media[0].video_info.variants：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[1].item.itemContent.tweet_results.result.legacy.entities.media[0].video_info.variants：6 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[1].item.itemContent.tweet_results.result.legacy.extended_entities.media[0].video_info.variants：6 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[2].item.itemContent.tweet_results.result.legacy.entities.media[0].video_info.variants：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[2].item.itemContent.tweet_results.result.legacy.extended_entities.media[0].video_info.variants：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[2].item.itemContent.tweet_results.result.quoted_status_result.result.legacy.entities.media[0].original_info.focus_rects：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items[2].item.itemContent.tweet_results.result.quoted_status_result.result.legacy.extended_entities.media[0].original_info.focus_rects：5 条 → 3 条（游标条目已保留）",
+      "data.user.result.timeline_v2.timeline.instructions[2].entries[0].content.items：11 条 → 3 条（游标条目已保留）"
+    ]
+  }
+}

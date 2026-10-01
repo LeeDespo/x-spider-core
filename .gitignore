@@ -1,0 +1,40 @@
+# --- 生成物（不提交）---
+/target/
+/dist/
+**/*.rs.bk
+*.pdb
+
+# --- 测试/录制产物 ---
+# 录制模式的原始响应：脱敏之后才允许入库（见 docs/04-TESTING-AND-FIXTURES.md §2.1）
+/fixtures/**/raw/
+*.record.json
+
+# --- 凭据（绝不入库，也绝不落盘；这里只是双保险）---
+.env
+.env.*
+*.cookie
+cookie.txt
+
+# --- 本地状态（sidecar 的 state-dir / 任务状态）---
+/.xspider-state/
+/state/
+
+# --- 专为 agent 而写的文档：不上传 GitHub ---
+# 这些文件是给「下一轮 agent」的操作手册与本轮简报，属于本地开发上下文，
+# 不是对外交付物。仓库对外只发布 docs/01–05 与 CONTRACT/DECISIONS/ROADMAP。
+/AGENTS.md
+/docs/00-KICKOFF.md
+
+# 其他 agent 工具的本地配置（不进仓库）
+/CLAUDE.md
+/GEMINI.md
+/.cursorrules
+/.cursor/
+/.codex/
+/.aider*
+/.zcode/
+
+# --- OS / 编辑器噪音 ---
+.DS_Store
+.idea/
+.vscode/

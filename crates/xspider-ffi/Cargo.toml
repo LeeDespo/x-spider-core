@@ -1,0 +1,27 @@
+[package]
+name = "xspider-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "X-Spider C ABI 层与 method 派发：xspider_version / xspider_call / xspider_free"
+
+[lib]
+# 产物名用 `xspider`：文档（docs/03 §5）里约定的交付物就是
+# `libxspider.dylib` / `.so` / `.dll`，打包时不必再改名。
+name = "xspider"
+# rlib 供 bins/xspiderd 进程内复用同一套派发逻辑（保证双形态行为一致是结构性保证，不是人工对齐）
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+xspider-core = { workspace = true }
+xspider-fetch = { workspace = true }
+xspider-download = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

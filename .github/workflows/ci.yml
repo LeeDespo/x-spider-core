@@ -1,0 +1,115 @@
+name: CI
+
+# 端到端的口径是 **macOS**（`docs/DECISIONS.md` ADR-038）：
+#   ① macOS 上 build + clippy -D warnings + test 全绿；
+#   ② 「用一个最小 C 程序 dlopen 生成的 cdylib 并调用 xspider_version」——
+#      次形态的可用性必须被真实加载验证，不能只看"编译过了"；
+#   ③ 冒烟脚本自己断言"无残留子进程"；
+#   ④ 那个**只经契约**的 CLI 也要能跑通（它是"外壳的替身"）。
+#
+# 为什么不再放 Linux/Windows 的格子：它们**没有真实消费方**，跑起来的绿是假的覆盖率，
+# 比没有更坏（ADR-038）。跨端靠的是代码级纪律——不引入 native-tls、不用 Apple 专有框架、
+# 路径不假设 POSIX——那些仍然有效，且由 clippy 与测试守着。
+#
+# 需要知道的取舍：
+# - **Aria2Next 的 E2E 在 CI 上默认会"大声跳过"**（那个二进制不随仓库走）。
+#   这里会尝试从上游 release 拉一次；拉不到也不让 CI 红——
+#   但测试会打印醒目的跳过说明，避免"看起来绿其实没跑"。
+# - 不在 CI 上跑 live（需要真实 cookie 与代理，会消耗账号配额）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # 默认离线：依赖已在仓库锁文件里，CI 仍然要能构建（cargo 需要索引时自行联网）
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    name: 质量门（macOS）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链（读 rust-toolchain.toml）
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 格式检查
+        run: cargo fmt --all --check
+
+      - name: clippy（-D warnings）
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: 测试（默认离线，不碰真网络）
+        run: cargo test --workspace
+
+      - name: 收录构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: xspiderd-macos
+          path: |
+            target/debug/xspiderd
+            target/debug/xspider-cli
+            target/debug/libxspider.dylib
+          if-no-files-found: error
+
+  # 次形态（cdylib）单独一个 job：它要 dlopen + 调 C ABI，不能只跟主流程混在一起
+  cdylib-smoke:
+    name: cdylib 冒烟
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 构建 cdylib
+        run: cargo build -p xspider-ffi
+
+      - name: 最小 C 程序 dlopen 并调用三个符号
+        run: |
+          LIB=target/debug/libxspider.dylib
+          # macOS arm64 要求代码文件自己有签名（否则被 SIGKILL 137）
+          codesign -f -s - "$LIB"
+          cc -o /tmp/cdylib_check script/cdylib_check.c
+          /tmp/cdylib_check "$LIB"
+
+  smoke:
+    name: 冒烟（离线：双形态 + 端到端 + CLI）
+    runs-on: macos-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # 试着把 Aria2Next 拉下来，让那 8 条 E2E 真的跑起来。
+      # 拉不到就跳过（测试会大声说明），不让 CI 红——但也就意味着那几条没跑。
+      - name: 尝试获取 Aria2Next（可选）
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/aria2next"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/aria2next/aria2next" \
+            https://github.com/AnInsomniacy/aria2-next/releases/latest/download/aria2next-macos-arm64 || \
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/aria2next/aria2next" \
+            https://github.com/AnInsomniacy/aria2-next/releases/latest/download/macos-arm64 || true
+          chmod +x "$RUNNER_TEMP/aria2next/aria2next" 2>/dev/null || true
+          xattr -dr com.apple.quarantine "$RUNNER_TEMP/aria2next/aria2next" 2>/dev/null || true
+          "$RUNNER_TEMP/aria2next/aria2next" --version
+          echo "XSPIDER_ARIA2_PATH=$RUNNER_TEMP/aria2next/aria2next" >> "$GITHUB_ENV"
+
+      - name: 一条命令验证双形态 + 端到端 + CLI
+        run: ./script/smoke.sh
+
+      - name: 下载后端 E2E（含 Aria2Next 的 8 条）
+        run: cargo test -p xspider-download --test queue_e2e --test http_e2e --test aria2_e2e
+
+      - name: 打包产物自检（ad-hoc 签名 + dlopen）
+        run: ./script/package.sh

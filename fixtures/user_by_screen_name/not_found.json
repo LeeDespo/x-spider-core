@@ -1,0 +1,24 @@
+{
+  "endpoint": "user_by_screen_name",
+  "scenario": "not_found",
+  "captured_at": "2026-10-01",
+  "note": "真实响应经 script/redact_fixtures.py 脱敏；结构完整、个人数据已替换为固定假值（见 docs/04 §2.1）",
+  "match": {
+    "method": "GET",
+    "operation": "UserByScreenName",
+    "auth": "valid"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-transaction-id": "REDACTED",
+      "x-rate-limit-limit": "150",
+      "x-rate-limit-reset": "1790832225",
+      "x-rate-limit-remaining": "147"
+    },
+    "body": {
+      "data": {}
+    }
+  }
+}

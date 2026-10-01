@@ -1,0 +1,24 @@
+[package]
+name = "xspider-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "X-Spider 的第一个真实消费方：只用契约（JSON-RPC）驱动组件，验证契约站不站得住"
+
+[[bin]]
+name = "xspider-cli"
+path = "src/main.rs"
+
+# ⚠️ 这个 crate **绝不能**依赖任何 `xspider-*` crate。
+#
+# 它的存在意义就是当"外壳的替身"：只能看见契约（`docs/CONTRACT.md` +
+# `contract/xspider.schema.json`），像别的语言写的 shell 一样通过 JSON-RPC 调组件。
+# 一旦它开始 `use xspider_fetch::Post`，契约够不够用就再也没人验证了
+# （缺字段、形状别扭都会"反正 Rust 里能拿到"而被糊过去）。
+#
+# 守卫测试：`tests/only_the_contract.rs`。
+[dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }

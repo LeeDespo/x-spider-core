@@ -1,0 +1,17 @@
+# 锁定工具链（见 docs/05-WORKFLOW.md §4）。
+#
+# 这里写 "stable" 而不是写死 "1.98.1"：本机 rustup 的 stable 就是 1.98.1，
+# 而写死具体版本会让 rustup 在首次构建时去下整个工具链（实测在代理环境下会
+# 把 toolchain 装成半成品并报 "could not remove 'component' file"，
+# 见 AGENTS.md 踩坑记录第 1 条）。可复现性由「本文件 + Cargo.lock 入库」+
+# 下面注释里记录的实测版本一起保证。
+#
+# 实测版本：rustc 1.98.1 (48a229cea 2026-09-01)
+#
+# 注意：只有 rustup 的 cargo 垫片会读这个文件。本机 PATH 里排前面的是
+# Homebrew 的真实 cargo 二进制（不读 rust-toolchain.toml），
+# 所以请显式使用 ~/.cargo/bin/cargo（见 AGENTS.md「常用命令」）。
+[toolchain]
+channel = "stable"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

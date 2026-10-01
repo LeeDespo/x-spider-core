@@ -1,0 +1,148 @@
+{
+  "endpoint": "user_by_screen_name",
+  "scenario": "normal",
+  "captured_at": "2026-10-01",
+  "note": "真实响应经 script/redact_fixtures.py 脱敏；结构完整、个人数据已替换为固定假值（见 docs/04 §2.1）",
+  "match": {
+    "method": "GET",
+    "operation": "UserByScreenName",
+    "auth": "valid",
+    "screen_name": "demo_user"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-transaction-id": "REDACTED",
+      "x-rate-limit-limit": "150",
+      "x-rate-limit-reset": "1790832225",
+      "x-rate-limit-remaining": "148"
+    },
+    "body": {
+      "data": {
+        "user": {
+          "result": {
+            "__typename": "User",
+            "affiliates_highlighted_label": {},
+            "business_account": {
+              "affiliates_count": 64
+            },
+            "creator_subscriptions_count": 29,
+            "has_graduated_access": true,
+            "has_hidden_likes_on_profile": true,
+            "has_hidden_subscriptions_on_profile": false,
+            "has_nft_avatar": false,
+            "highlights_info": {
+              "can_highlight_tweets": true,
+              "highlighted_tweets": "39"
+            },
+            "id": "redacted-832ad90c",
+            "is_blue_verified": true,
+            "is_profile_translatable": false,
+            "legacy": {
+              "blocked_by": false,
+              "blocking": false,
+              "can_dm": true,
+              "can_media_tag": true,
+              "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+              "default_profile": false,
+              "default_profile_image": false,
+              "description": "REDACTED demo bio for fixture testing purposes only.",
+              "entities": {
+                "description": {},
+                "url": {
+                  "urls": [
+                    {
+                      "display_url": "https://example.invalid/redacted",
+                      "expanded_url": "https://example.invalid/redacted",
+                      "indices": [
+                        0,
+                        23
+                      ],
+                      "url": "https://example.invalid/redacted"
+                    }
+                  ]
+                }
+              },
+              "fast_followers_count": 0,
+              "favourites_count": 90,
+              "follow_request_sent": false,
+              "followed_by": false,
+              "followers_count": 12,
+              "following": false,
+              "friends_count": 34,
+              "has_custom_timelines": true,
+              "is_translator": false,
+              "listed_count": 1,
+              "location": "",
+              "media_count": 56,
+              "muting": false,
+              "name": "Demo User",
+              "needs_phone_verification": false,
+              "normal_followers_count": 12,
+              "notifications": false,
+              "pinned_tweet_ids_str": [
+                "5218727870721098907"
+              ],
+              "possibly_sensitive": false,
+              "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+              "profile_image_url_https": "https://pbs.twimg.com/redacted/demo.jpg",
+              "profile_interstitial_type": "",
+              "protected": false,
+              "screen_name": "demo_user",
+              "statuses_count": 78,
+              "time_zone": "",
+              "translator_type": "none",
+              "url": "https://example.invalid/redacted",
+              "utc_offset": 0,
+              "verified": false,
+              "verified_type": "Business",
+              "want_retweets": false,
+              "withheld_description": "",
+              "withheld_scope": ""
+            },
+            "legacy_extended_profile": {
+              "birthdate": {
+                "day": 1,
+                "month": 1,
+                "visibility": "Public",
+                "year_visibility": "Self"
+              }
+            },
+            "professional": {
+              "category": [],
+              "professional_type": "Business",
+              "rest_id": "9078527630165058127"
+            },
+            "profile_image_shape": "Square",
+            "rest_id": "50909294",
+            "smart_blocked_by": false,
+            "smart_blocking": false,
+            "super_follow_eligible": false,
+            "super_followed_by": false,
+            "super_following": false,
+            "verification_info": {
+              "is_identity_verified": false,
+              "reason": {
+                "description": {
+                  "entities": [
+                    {
+                      "from_index": 69,
+                      "ref": {
+                        "url": "https://example.invalid/redacted",
+                        "url_type": "ExternalUrl"
+                      },
+                      "to_index": 79
+                    }
+                  ],
+                  "text": "REDACTED post text."
+                },
+                "verified_since_msec": "1700000000000"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

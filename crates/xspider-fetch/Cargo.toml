@@ -1,0 +1,15 @@
+[package]
+name = "xspider-fetch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "X-Spider 取数组件：用户、媒体时间线、推文时间线、推文详情、搜索、主页时间线、关注、互动"
+
+[dependencies]
+xspider-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }

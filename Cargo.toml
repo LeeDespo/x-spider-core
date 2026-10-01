@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/xspider-core",
+    "crates/xspider-fetch",
+    "crates/xspider-download",
+    "crates/xspider-ffi",
+    "bins/xspiderd",
+    "bins/xspider-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+description = "X(Twitter) 数据获取与下载的 Rust 核心组件，供跨平台外壳复用"
+
+[workspace.dependencies]
+# --- 内部组件（只允许 上层 -> 组件 -> core 的单向依赖）---
+xspider-core = { path = "crates/xspider-core" }
+xspider-fetch = { path = "crates/xspider-fetch" }
+xspider-download = { path = "crates/xspider-download" }
+xspider-ffi = { path = "crates/xspider-ffi" }
+
+# --- 外部依赖 ---
+# 异步运行时
+tokio = { version = "1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "io-std",
+    "sync",
+    "time",
+    "signal",
+    "process",
+] }
+
+# HTTP：必须 rustls，不要 native-tls（否则交叉编译 Windows/Linux 被 OpenSSL 拖死，
+# 见 docs/00-KICKOFF.md §6 与 docs/03-FFI-SIGNING-PACKAGING.md §6）。
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls-native-roots",
+    "json",
+    "http2",
+    "gzip",
+    "brotli",
+    "deflate",
+] }
+
+serde = { version = "1", features = ["derive"] }
+# preserve_order 是刻意的，不是随手加的：
+# 1) `variables` / `features` 的键顺序与上游（JSON.stringify）一致，少一个"跟上游不一样"的变量；
+# 2) fixture 录制时把上游响应**按原键序**写回文件，入库样本与真实响应逐字可比对。
+# 代价：Map 变成 IndexMap（多一个 indexmap 依赖，纯 Rust、无许可证问题）。
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+regex = "1"
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+
+[profile.release]
+lto = "thin"
+
+# 测试与开发构建保留调试信息，崩溃时能看栈（sidecar 排查用）
+[profile.dev]
+debug = 1

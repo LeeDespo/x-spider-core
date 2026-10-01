@@ -1,0 +1,436 @@
+{
+  "endpoint": "following",
+  "scenario": "page1",
+  "captured_at": "2026-10-01",
+  "note": "真实响应经 script/redact_fixtures.py 脱敏；结构完整、个人数据已替换为固定假值（见 docs/04 §2.1）",
+  "match": {
+    "method": "GET",
+    "operation": "Following",
+    "auth": "valid",
+    "cursor": "absent"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-transaction-id": "REDACTED",
+      "x-rate-limit-limit": "500",
+      "x-rate-limit-reset": "1790832236",
+      "x-rate-limit-remaining": "499"
+    },
+    "body": {
+      "data": {
+        "user": {
+          "result": {
+            "__typename": "User",
+            "timeline": {
+              "timeline": {
+                "instructions": [
+                  {
+                    "type": "TimelineClearCache"
+                  },
+                  {
+                    "direction": "Top",
+                    "type": "TimelineTerminateTimeline"
+                  },
+                  {
+                    "direction": "Bottom",
+                    "type": "TimelineTerminateTimeline"
+                  },
+                  {
+                    "entries": [
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineItem",
+                          "clientEventInfo": {
+                            "component": "FollowingSgs",
+                            "element": "user"
+                          },
+                          "entryType": "TimelineTimelineItem",
+                          "itemContent": {
+                            "__typename": "TimelineUser",
+                            "itemType": "TimelineUser",
+                            "userDisplayType": "User",
+                            "user_results": {
+                              "result": {
+                                "__typename": "User",
+                                "affiliates_highlighted_label": {
+                                  "label": {
+                                    "badge": {
+                                      "url": "https://pbs.twimg.com/redacted/demo.jpg"
+                                    },
+                                    "description": "REDACTED demo bio for fixture testing purposes only.",
+                                    "url": {
+                                      "url": "https://example.invalid/redacted",
+                                      "urlType": "DeepLink"
+                                    },
+                                    "userLabelDisplayType": "Badge",
+                                    "userLabelType": "BusinessLabel"
+                                  }
+                                },
+                                "avatar": {
+                                  "image_url": "https://pbs.twimg.com/redacted/demo.jpg"
+                                },
+                                "core": {
+                                  "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                  "name": "Demo User",
+                                  "screen_name": "demo_user"
+                                },
+                                "dm_permissions": {
+                                  "can_dm": false
+                                },
+                                "follow_request_sent": false,
+                                "has_graduated_access": true,
+                                "id": "redacted-53e483c3",
+                                "is_blue_verified": true,
+                                "legacy": {
+                                  "default_profile": true,
+                                  "default_profile_image": false,
+                                  "description": "REDACTED demo bio for fixture testing purposes only.",
+                                  "entities": {
+                                    "description": {},
+                                    "url": {
+                                      "urls": [
+                                        {
+                                          "display_url": "https://example.invalid/redacted",
+                                          "expanded_url": "https://example.invalid/redacted",
+                                          "indices": [
+                                            0,
+                                            23
+                                          ],
+                                          "url": "https://example.invalid/redacted"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "fast_followers_count": 0,
+                                  "favourites_count": 90,
+                                  "follow_request_sent": false,
+                                  "followers_count": 12,
+                                  "friends_count": 34,
+                                  "has_custom_timelines": false,
+                                  "is_translator": false,
+                                  "listed_count": 1,
+                                  "media_count": 56,
+                                  "needs_phone_verification": false,
+                                  "normal_followers_count": 12,
+                                  "notifications": false,
+                                  "possibly_sensitive": false,
+                                  "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                  "profile_interstitial_type": "",
+                                  "statuses_count": 78,
+                                  "time_zone": "",
+                                  "translator_type": "none",
+                                  "url": "https://example.invalid/redacted",
+                                  "utc_offset": 0,
+                                  "want_retweets": false,
+                                  "withheld_description": "",
+                                  "withheld_scope": ""
+                                },
+                                "location": {
+                                  "location": ""
+                                },
+                                "media_permissions": {
+                                  "can_media_tag": false
+                                },
+                                "privacy": {
+                                  "protected": false
+                                },
+                                "professional": {
+                                  "category": [
+                                    {
+                                      "icon_name": "IconBriefcaseStroke",
+                                      "id": 53,
+                                      "name": "Demo User"
+                                    }
+                                  ],
+                                  "professional_type": "Business",
+                                  "rest_id": "4781894301298327498"
+                                },
+                                "profile_bio": {
+                                  "description": "REDACTED demo bio for fixture testing purposes only."
+                                },
+                                "profile_description_language": "en",
+                                "profile_image_shape": "Square",
+                                "relationship_perspectives": {
+                                  "blocked_by": false,
+                                  "blocking": false,
+                                  "followed_by": false,
+                                  "following": false,
+                                  "muting": false
+                                },
+                                "rest_id": "5012703872127478125",
+                                "super_follow_eligible": false,
+                                "super_followed_by": false,
+                                "super_following": false,
+                                "verification": {
+                                  "verified": false,
+                                  "verified_type": "Business"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "entryId": "user-5012703872127478125",
+                        "sortIndex": "2985294727898701270"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineItem",
+                          "clientEventInfo": {
+                            "component": "FollowingSgs",
+                            "element": "user"
+                          },
+                          "entryType": "TimelineTimelineItem",
+                          "itemContent": {
+                            "__typename": "TimelineUser",
+                            "itemType": "TimelineUser",
+                            "userDisplayType": "User",
+                            "user_results": {
+                              "result": {
+                                "__typename": "User",
+                                "affiliates_highlighted_label": {
+                                  "label": {
+                                    "badge": {
+                                      "url": "https://pbs.twimg.com/redacted/demo.jpg"
+                                    },
+                                    "description": "REDACTED demo bio for fixture testing purposes only.",
+                                    "url": {
+                                      "url": "https://example.invalid/redacted",
+                                      "urlType": "DeepLink"
+                                    },
+                                    "userLabelDisplayType": "Badge",
+                                    "userLabelType": "BusinessLabel"
+                                  }
+                                },
+                                "avatar": {
+                                  "image_url": "https://pbs.twimg.com/redacted/demo.jpg"
+                                },
+                                "core": {
+                                  "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                  "name": "Demo User",
+                                  "screen_name": "demo_user"
+                                },
+                                "dm_permissions": {
+                                  "can_dm": false
+                                },
+                                "follow_request_sent": false,
+                                "has_graduated_access": true,
+                                "id": "redacted-43b7da17",
+                                "is_blue_verified": true,
+                                "legacy": {
+                                  "default_profile": true,
+                                  "default_profile_image": false,
+                                  "description": "REDACTED demo bio for fixture testing purposes only.",
+                                  "entities": {
+                                    "description": {}
+                                  },
+                                  "fast_followers_count": 0,
+                                  "favourites_count": 90,
+                                  "follow_request_sent": false,
+                                  "followers_count": 12,
+                                  "friends_count": 34,
+                                  "has_custom_timelines": true,
+                                  "is_translator": false,
+                                  "listed_count": 1,
+                                  "media_count": 56,
+                                  "needs_phone_verification": false,
+                                  "normal_followers_count": 12,
+                                  "notifications": false,
+                                  "possibly_sensitive": false,
+                                  "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                  "profile_interstitial_type": "",
+                                  "statuses_count": 78,
+                                  "time_zone": "",
+                                  "translator_type": "none",
+                                  "url": "https://example.invalid/redacted",
+                                  "utc_offset": 0,
+                                  "want_retweets": false,
+                                  "withheld_description": "",
+                                  "withheld_scope": ""
+                                },
+                                "location": {
+                                  "location": ""
+                                },
+                                "media_permissions": {
+                                  "can_media_tag": true
+                                },
+                                "privacy": {
+                                  "protected": false
+                                },
+                                "profile_bio": {
+                                  "description": "REDACTED demo bio for fixture testing purposes only."
+                                },
+                                "profile_image_shape": "Circle",
+                                "relationship_perspectives": {
+                                  "blocked_by": false,
+                                  "blocking": false,
+                                  "followed_by": false,
+                                  "following": false,
+                                  "muting": false
+                                },
+                                "rest_id": "14149098",
+                                "super_follow_eligible": false,
+                                "super_followed_by": false,
+                                "super_following": false,
+                                "verification": {
+                                  "verified": false
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "entryId": "user-55769345",
+                        "sortIndex": "2923436585256363276"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineItem",
+                          "clientEventInfo": {
+                            "component": "FollowingSgs",
+                            "element": "user"
+                          },
+                          "entryType": "TimelineTimelineItem",
+                          "itemContent": {
+                            "__typename": "TimelineUser",
+                            "itemType": "TimelineUser",
+                            "userDisplayType": "User",
+                            "user_results": {
+                              "result": {
+                                "__typename": "User",
+                                "affiliates_highlighted_label": {},
+                                "avatar": {
+                                  "image_url": "https://pbs.twimg.com/redacted/demo.jpg"
+                                },
+                                "core": {
+                                  "created_at": "Wed Sep 30 12:34:56 +0000 2009",
+                                  "name": "Demo User",
+                                  "screen_name": "demo_user"
+                                },
+                                "dm_permissions": {
+                                  "can_dm": false
+                                },
+                                "follow_request_sent": false,
+                                "has_graduated_access": true,
+                                "id": "redacted-418ba4e8",
+                                "is_blue_verified": false,
+                                "legacy": {
+                                  "default_profile": false,
+                                  "default_profile_image": false,
+                                  "description": "REDACTED demo bio for fixture testing purposes only.",
+                                  "entities": {
+                                    "description": {},
+                                    "url": {
+                                      "urls": [
+                                        {
+                                          "display_url": "https://example.invalid/redacted",
+                                          "expanded_url": "https://example.invalid/redacted",
+                                          "indices": [
+                                            0,
+                                            23
+                                          ],
+                                          "url": "https://example.invalid/redacted"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "fast_followers_count": 0,
+                                  "favourites_count": 90,
+                                  "follow_request_sent": false,
+                                  "followers_count": 12,
+                                  "friends_count": 34,
+                                  "has_custom_timelines": true,
+                                  "is_translator": false,
+                                  "listed_count": 1,
+                                  "media_count": 56,
+                                  "needs_phone_verification": false,
+                                  "normal_followers_count": 12,
+                                  "notifications": false,
+                                  "pinned_tweet_ids_str": [
+                                    "8787430341892525094"
+                                  ],
+                                  "possibly_sensitive": false,
+                                  "profile_banner_url": "https://pbs.twimg.com/redacted/demo.jpg",
+                                  "profile_interstitial_type": "",
+                                  "statuses_count": 78,
+                                  "time_zone": "",
+                                  "translator_type": "none",
+                                  "url": "https://example.invalid/redacted",
+                                  "utc_offset": 0,
+                                  "want_retweets": false,
+                                  "withheld_description": "",
+                                  "withheld_scope": ""
+                                },
+                                "location": {
+                                  "location": ""
+                                },
+                                "media_permissions": {
+                                  "can_media_tag": true
+                                },
+                                "privacy": {
+                                  "protected": false
+                                },
+                                "profile_bio": {
+                                  "description": "REDACTED demo bio for fixture testing purposes only."
+                                },
+                                "profile_description_language": "en",
+                                "profile_image_shape": "Square",
+                                "relationship_perspectives": {
+                                  "blocked_by": false,
+                                  "blocking": false,
+                                  "followed_by": false,
+                                  "following": false,
+                                  "muting": false
+                                },
+                                "rest_id": "870529674967238107",
+                                "super_follow_eligible": false,
+                                "super_followed_by": false,
+                                "super_following": false,
+                                "verification": {
+                                  "verified": false,
+                                  "verified_type": "Business"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "entryId": "user-870529674967238107",
+                        "sortIndex": "1923692943070507832"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineCursor",
+                          "cursorType": "Bottom",
+                          "entryType": "TimelineTimelineCursor",
+                          "value": "6121674563698163090|2167034705234167432"
+                        },
+                        "entryId": "cursor-bottom-7450527432901458561",
+                        "sortIndex": "7450527432901458561"
+                      },
+                      {
+                        "content": {
+                          "__typename": "TimelineTimelineCursor",
+                          "cursorType": "Top",
+                          "entryType": "TimelineTimelineCursor",
+                          "value": "-1|2945870505252347250"
+                        },
+                        "entryId": "cursor-top-2945870505252347250",
+                        "sortIndex": "2945870505252347250"
+                      }
+                    ],
+                    "type": "TimelineAddEntries"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "redaction": {
+    "arrays_trimmed": [
+      "data.user.result.timeline.timeline.instructions[3].entries：54 条 → 5 条（游标条目已保留）"
+    ]
+  }
+}

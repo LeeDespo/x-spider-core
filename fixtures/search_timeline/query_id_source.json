@@ -1,0 +1,12 @@
+{
+  "captured_at": "2026-10-01",
+  "page_url": "https://x.com/search?q=from%3Atwitter&src=typed_query&f=live",
+  "bundle_url": "https://abs.twimg.com/responsive-web/client-web/main.a03d586eee79c984a.js",
+  "expected_query_id": "uGB-gNd5HE4TkpO70OcFNw",
+  "excerpt": "e){e.exports={queryId:\"5kUWP8C1hcd6omvg6HXXTQ\",operationName:\"ProfileUserPhoneState\",operationType:\"query\",metadata:{featureSwitches:[],fieldToggles:[]}}},607396(e){e.exports={queryId:\"IjQ-egg0uPkY11NyPMfRMQ\",operationName:\"PutClientEducationFlag\",operationType:\"mutation\",metadata:{featureSwitches:[],fieldToggles:[]}}},122036(e){e.exports={queryId:\"QpNfg0kpPRfjROQ_9eOLXA\",operationName:\"RemoveFollower\",operationType:\"mutation\",metadata:{featureSwitches:[],fieldToggles:[]}}},447423(e){e.exports={queryId:\"uGB-gNd5HE4TkpO70OcFNw\",operationName:\"SearchTimeline\",operationType:\"query\",metadata:{featureSwitches:[\"rweb_video_screen_enabled\",\"rweb_cashtags_enabled\",\"profile_label_improvements_pcf_label_in_post_enabled\",\"responsive_web_profile_redirect_enabled\",\"rweb_tipjar_consumption_enabled\",\"verified_phone_label_enabled\",\"crea",
+  "sibling_operation": "BookmarkSearchTimeline",
+  "sibling_query_id": "vqbH512y_Emfr0P4rXJ0Lw",
+  "sibling_excerpt": "withArticleSummaryText\",\"withArticleVoiceOver\",\"withGrokAnalyze\",\"withDisallowedReplyControls\"]}}},521179(e){e.exports={queryId:\"vqbH512y_Emfr0P4rXJ0Lw\",operationName:\"BookmarkSearchTimeline\",operationType:\"query\",metadata:{featureSwitches:[\"rweb_video_screen_enabled\",\"rweb_cashtags_enabled\",\"profile_label_improvements_pcf_label_in_post_enabled\",\"res",
+  "unanchored_first_query_id": "D1nwFlsu_qHsX92YzoRaaA",
+  "note": "由 record_search_query_id_source 从真实 bundle 截取；只含匹配点附近的片段，不含个人数据"
+}

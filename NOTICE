@@ -1,0 +1,81 @@
+X-Spider Core — 第三方组件与出处声明
+=====================================
+
+本文件列出本仓库的许可证归属、代码出处，以及随包分发第三方程序时的义务。
+
+1. 本仓库自身
+-------------
+
+X-Spider Core 以 GPL-3.0-only 发布（见 LICENSE）。
+
+原因是：本仓库的 X GraphQL 请求构造、分页与解析逻辑，移植自
+  MiningCattiva/x-spider      （Tauri + React，GPL-3.0）
+以及其 macOS 移植
+  x-spider-mac                （本机只读参照，GPL-3.0）
+两者都是 GPL-3.0。衍生作品必须沿用同一许可证（copyleft），因此本仓库也是 GPL-3.0-only。
+
+具体受影响的部分（阅读代码时请注意）：
+- crates/xspider-fetch/src/endpoints.rs —— 端点定义与 features 常量，与上游逐字对齐；
+- crates/xspider-fetch/src/user.rs     —— variables 构造与响应解析；
+- crates/xspider-core/src/xclid.rs     —— x-client-transaction-id 算法。
+
+2. x-client-transaction-id 算法
+-------------------------------
+
+crates/xspider-core/src/xclid.rs 的算法移植自：
+  twscrape/xclid.py
+    ← 源自 iSarabjitDhiman/XClientTransaction （MIT 许可）
+    ← 再经 x-spider-mac 的 Swift 实现（Services/XClientTransaction.swift）
+
+上游为 MIT 许可，与本仓库的 GPL-3.0 兼容（MIT 允许被纳入 GPL 作品）。
+本文件在此保留 MIT 的出处与致谢。
+
+3. Aria2Next（**不随本仓库的源码分发**，但打包时会随产物分发）
+--------------------------------------------------------------
+
+  仓库：AnInsomniacy/aria2-next
+          https://github.com/AnInsomniacy/aria2-next
+  版本：**本项目只支持 Aria2Next**。实测环境用的是 **2.7.5**
+        （二进制随 x-spider-mac 分发，路径
+        `XSpiderMac/Resources/Binaries/aria2next`）；
+        上游最新为 2.8.3（2026-09-28 发布）。
+  许可证：**GPL-2.0**（"version 2, or (at your option) any later version"）
+
+为什么只支持 Aria2Next 而不是上游 aria2：**两者的选项集与行为不同**（实测）：
+
+  | 事实 | 实测结果（Aria2Next 2.7.5，2026-10-01） |
+  |---|---|
+  | 产品标识 | `aria2.getVersion` 返回 `product: "aria2-next"`，`version: "2.7.5"` |
+  | `--split` / `--max-connection-per-server` | **不在 `--help=#all` 里**，但通过 `getGlobalOption` 读得到（值 6）→ 只能实测，看帮助会被误导 |
+  | fork 专有项 | `--stream-max-connections`（"per-file HTTP connection ceiling"） |
+  | 404 的行为 | **会报成 `status=complete` + 0 字节文件**（见下） |
+
+组件在启动时会校验 `product` 必须含 `aria2-next`，指向上游 aria2 会被明确拒绝
+（`crates/xspider-download/src/aria2.rs` 的 `preflight`）。
+
+法律性质：Aria2Next 是**独立的可执行程序**，本组件通过
+「子进程 + JSON-RPC」调用它，属于**聚合（aggregation）**，不传染本仓库的许可证。
+
+但**随包分发它的二进制时必须**：
+
+  a) 附上 GPL-2.0 的完整许可证文本（`LICENSE.aria2`）；
+  b) 提供对应的**源码获取方式**（上方的仓库链接 + 本包所用版本的 tag）；
+  c) 在产物目录里指明所用版本号与校验和。
+
+因此：`dist/` 产物里若包含 `aria2next` 可执行文件，
+`LICENSE` / 本 NOTICE 必须一并放入（见 docs/03-FFI-SIGNING-PACKAGING.md §4、§5）。
+
+另外两条实测结论（都写进了代码与测试）：
+
+- **不要在运行时自动下载该二进制**：macOS 上未签名 / 被 quarantine 的二进制
+  会被内核 SIGKILL（实测退出码 137），表现为"静默死亡"，很难排查；
+- **不要相信"引擎说成功"**：实测 Aria2Next 对 404 会报 `complete` 并留下 0 字节文件，
+  所以完成判据必须是我们自己的**落盘字节数校验**（见 `docs/02` §E2 与
+  `crates/xspider-download/tests/aria2_e2e.rs` 的 `a_404_must_not_be_reported_as_success`）。
+
+4. 依赖的 Rust crate
+--------------------
+
+全部为宽松许可（MIT / Apache-2.0 双许可等），与 GPL-3.0 兼容，无 copyleft 传染风险。
+依赖清单以 Cargo.lock 为准。M3 会引入 `cargo deny` 或至少 `cargo audit` 做持续检查
+（见 docs/05-WORKFLOW.md §4「依赖纪律」）。
