@@ -254,7 +254,7 @@ Test Case 'testDownloadThroughTheStoreAndComponent'     passed (5.376 seconds)  
 教训：**"这个模块已经没人用了"要按引用数核对，不能按感觉**；删一层实现时，
 先 grep 谁还在用它的资源管理代码。
 
-**这一轮踩到的两个 Swift 6 细节**（下次接入别的外壳也会撞上）：
+**这一轮踩到的三个 Swift 6 细节**（下次接入别的外壳也会撞上）：
 
 - `Any` 不是 `Sendable`：`[String: Any]` 跨 actor 边界会被拒（
   `sending 'params' risks causing data races`）。解法是给契约参数/结果一个
@@ -262,3 +262,12 @@ Test Case 'testDownloadThroughTheStoreAndComponent'     passed (5.376 seconds)  
 - `NSLock.lock()/unlock()` 在 async 上下文里被标记为不可用，要用作用域式的
   `withLock`；`ISO8601DateFormatter` 这类格式化器要显式 `nonisolated(unsafe)` +
   只配置一次（每次新建才是真的坑）。
+- **独占性冲突会让应用直接 SIGABRT**，而且极难从现象反推。建回复树时写成
+  `byId[id]?.depth = depth(of: id)`：左侧持有对 `byId` 的写访问，右侧的嵌套函数
+  里又要读同一个字典——嵌套函数捕获的本地 var 走同一个访问盒，运行时检查直接
+  `fatalError`。症状是**"打开任何带评论的推文，应用必崩"**。
+  解法：把右侧先算进局部变量（`let computed = depth(of: id)`），写访问不再跨越那次读取。
+  两个教训：① 嵌套函数/闭包一旦捕获本地 `var`，**同一条语句里"写它 + 读它"就是雷**；
+  ② 迁移之后**旧测试测的是旧代码**——回复树的旧用例测的是已经没人调用的解析函数，
+  新映射一路亮绿灯，直到用户点开一条带评论的推文。
+  回归用例：`XSpiderMacTests/XSpiderMappingTests.swift`。
