@@ -506,7 +506,10 @@
         "retweet_count",
         "reply_count",
         "possibly_sensitive",
-        "author"
+        "author",
+        "favorited",
+        "retweeted",
+        "bookmarked"
       ],
       "properties": {
         "id": {
@@ -561,6 +564,18 @@
         },
         "possibly_sensitive": {
           "type": "boolean"
+        },
+        "bookmarked": {
+          "type": "boolean",
+          "description": "我有没有收藏这条。"
+        },
+        "retweeted": {
+          "type": "boolean",
+          "description": "我有没有转推这条。"
+        },
+        "favorited": {
+          "type": "boolean",
+          "description": "我有没有点赞这条（**状态**，不是计数）。外壳据此决定按钮实心/空心。"
         },
         "medias": {
           "type": "array",
@@ -621,7 +636,10 @@
         "id",
         "full_text",
         "author",
-        "is_partial_parent"
+        "is_partial_parent",
+        "favorited",
+        "retweeted",
+        "bookmarked"
       ],
       "properties": {
         "id": {
@@ -676,6 +694,18 @@
         },
         "possibly_sensitive": {
           "type": "boolean"
+        },
+        "favorited": {
+          "type": "boolean",
+          "description": "我有没有点赞这条（**状态**，不是计数）。外壳据此决定按钮实心/空心。"
+        },
+        "retweeted": {
+          "type": "boolean",
+          "description": "我有没有转推这条。"
+        },
+        "bookmarked": {
+          "type": "boolean",
+          "description": "我有没有收藏这条。"
         },
         "medias": {
           "type": "array",

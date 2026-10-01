@@ -126,6 +126,7 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
 { "id": "123…", "created_at": "2026-09-25T01:33:31Z", "full_text": "…",
   "lang": "en", "views": 4321, "favorite_count": 10, "retweet_count": 3, "reply_count": 1,
   "bookmark_count": 7, "quote_count": 2, "possibly_sensitive": false,
+  "favorited": true, "retweeted": false, "bookmarked": true,   // 我的状态（按钮实心/空心）
   "medias": [ { "kind": "video", "id": "…", "url": "https://video.twimg.com/….mp4",
                 "ext": "mp4", "width": 1920, "height": 1080, "duration_ms": 61500,
                 "aspect_ratio": [16,9], "variants": [ … ] } ],

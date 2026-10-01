@@ -214,6 +214,9 @@ fn sample_post() -> Post {
         bookmark_count: Some(0),
         quote_count: Some(0),
         possibly_sensitive: false,
+        favorited: false,
+        retweeted: false,
+        bookmarked: false,
         medias: vec![Media {
             kind: MediaKind::Video,
             id: "m1".into(),

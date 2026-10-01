@@ -1028,15 +1028,27 @@ mod tests {
         }
     }
 
-    /// 候选列表里**绝不能**出现写死的家目录：仓库是对外发布的，
-    /// `/Users/<某人>/...` 只在他那台机器上有意义（而且不该出现在公开仓库里）。
+    /// 候选列表里**不能有写死的个人家目录**：仓库是对外发布的，
+    /// `/Users/<某人>/...` 只在那台机器上有意义。
+    ///
+    /// 每个候选必须满足其一：从 `current_exe` 推导出来（必然落在仓库/安装位置里）、
+    /// 在 `$HOME` 之下、或者压根是相对路径。
     #[test]
-    fn bundled_candidates_are_relative_not_a_personal_home_path() {
+    fn bundled_candidates_do_not_hardcode_a_personal_home_path() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf));
         for candidate in bundled_candidates() {
+            if let Some(dir) = &exe_dir {
+                if candidate.starts_with(dir) {
+                    continue; // 由 current_exe 推导，命中的是"正在跑的这份二进制"旁边
+                }
+            }
             let text = candidate.to_string_lossy();
             assert!(
-                !text.contains("/Users/mac/"),
-                "写死了家目录：{text}（要用 $HOME 或相对路径拼）"
+                !text.starts_with('/') || (!home.is_empty() && text.starts_with(&home)),
+                "候选路径既不是相对路径、也不在 $HOME 下：{text}（不要写死某台机器的路径）"
             );
         }
     }

@@ -117,6 +117,14 @@ pub struct Post {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quote_count: Option<u64>,
     pub possibly_sensitive: bool,
+    /// 我有没有点赞 / 转推 / 收藏这条（X 在 `legacy` 里给的就是这三面旗）。
+    ///
+    /// **不是"计数"，是"状态"**：外壳靠它决定按钮是实心还是空心——
+    /// 参考实现的 `mapTwitterPost` 读的也是这三个（`legacy.favorited` 等）。
+    /// 缺了它们，接入后点赞/收藏按钮会全部显示成"没点过"。
+    pub favorited: bool,
+    pub retweeted: bool,
+    pub bookmarked: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub medias: Vec<Media>,
     pub author: PostAuthor,
@@ -200,10 +208,10 @@ pub fn parse_post(result: &Value) -> Option<Post> {
         reply_count: u64_field(legacy, "reply_count"),
         bookmark_count: opt_u64_field(legacy, "bookmark_count"),
         quote_count: opt_u64_field(legacy, "quote_count"),
-        possibly_sensitive: legacy
-            .get("possibly_sensitive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        possibly_sensitive: bool_field(legacy, "possibly_sensitive"),
+        favorited: bool_field(legacy, "favorited"),
+        retweeted: bool_field(legacy, "retweeted"),
+        bookmarked: bool_field(legacy, "bookmarked"),
         medias,
         author,
         tags,
@@ -483,6 +491,11 @@ fn str_field(obj: &Value, key: &str) -> Option<String> {
     obj.get(key).and_then(|v| v.as_str()).map(str::to_string)
 }
 
+/// 布尔字段。缺失按 `false`（X 的语义就是"没有这回事"）。
+fn bool_field(obj: &Value, key: &str) -> bool {
+    obj.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 fn u64_field(obj: &Value, key: &str) -> u64 {
     obj.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
 }
@@ -511,6 +524,9 @@ mod tests {
                 "bookmark_count": 7,
                 "quote_count": 2,
                 "possibly_sensitive": false,
+                "favorited": true,
+                "retweeted": true,
+                "bookmarked": true,
                 "in_reply_to_status_id_str": "999",
                 "in_reply_to_screen_name": "someone_else",
                 "entities": {
@@ -549,6 +565,7 @@ mod tests {
         assert_eq!(post.views, Some(4321));
         assert_eq!(post.favorite_count, 10);
         assert_eq!(post.bookmark_count, Some(7));
+        assert!(post.favorited && post.retweeted && post.bookmarked, "三面旗要读出来（UI 的实心/空心靠它）");
         assert_eq!(post.tags, vec!["rust", "x"]);
         assert_eq!(post.author.screen_name, "demo_user");
         assert_eq!(post.author.id, "42");
