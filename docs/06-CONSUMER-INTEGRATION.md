@@ -218,13 +218,15 @@ Test Case 'testDownloadThroughTheStoreAndComponent'     passed (5.376 seconds)  
 另外实测：应用退出后组件进程**一并消失**（无残留）——那正是 `applicationShouldTerminate`
 返回 `.terminateLater` 换来的。
 
-**还没接的**（下一轮，按价值排序）：
+**已经全部接完**（2026-10-01 晚）：`auth.whoami` / `fetch.is_following` / `fetch.mutate`
+补进组件之后，应用里**再没有一条自己发出的 X 请求**——
+`NetworkClient` / `XClientTransaction` / `RequestGate` 及其测试已删除（−1042 行）。
+`TwitterAPI` 现在只是"契约 JSON ↔ 应用模型"的映射层。
 
-1. **点赞 / 转推 / 书签（`fetch.mutate`）仍在应用侧**：组件尚未实现写操作，所以
-   `NetworkClient` / `XClientTransaction` / `RequestGate` 暂时还活着（它们服务这条路径）。
-   组件补上 `fetch.mutate` 之后，这三个文件才轮得到删除。
-2. **账户探测**（抓 `x.com` 首页 HTML 取 `screen_name` / 头像）仍是应用侧实现。
-   组件可以补一个 `auth.whoami`（它为了签名本来就要抓同一个页面），补上之后这块也能删。
+实测：离线 235 条 0 失败；live 8 条全过；应用启动后组件是它的子进程（两条 ESTABLISHED
+连接）、退出时组件随之消失、无残留。
+
+**还没接的**（剩下的都是"产品决定"而非能力缺口）：
 3. 取数侧的旧解析函数（`extractPostsFrom*` / `mapTwitterPost` / `extractReplyNodes` 等）
    现在只有测试在引用——随测试一起删，属于"清尾"。
 
