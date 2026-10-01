@@ -38,3 +38,7 @@ cookie.txt
 .DS_Store
 .idea/
 .vscode/
+
+# Python 字节码缓存（脱敏脚本跑过就会生成）
+__pycache__/
+*.pyc

@@ -34,6 +34,9 @@ use crate::transport::HttpMethod;
 /// 移植自上游的常量：与请求头一起构成 X 眼中的"客户端身份"。
 pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 /// `twscrape/account.py` 的 TOKEN（X 轮换后的有效 Bearer；上游 2024 硬编码版已 401）。
+/// X 网页端的**公开** Bearer（每个登录态都用它，存在于 x.com 的 JS bundle 里；
+/// 它不是任何账号的凭据，也不接受用户登录信息）。X 会轮换它——失效的表现是 401，
+/// 那时的正确做法是去 bundle 里取新的，而不是猜。
 pub const BEARER: &str = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
 /// 时间戳基准（`docs/02` 的上游实现用的魔术常量，不可改）。
