@@ -27,6 +27,13 @@
   `--list-methods`（外壳的启动自检）；退出码 0 成功 / 1 有媒体没下成 / 2 用法错 / 3 契约失败。
 
 ### 契约
+- **契约版本 → 1.4.0**：`post` / `reply` 新增 **`quoted`**（内嵌的被引用推文，**只嵌一层**）。
+  此前只有 `quoted_id`，接入后引用推文在界面上只剩一个空壳——参考实现有 `mapQuotedPost`，
+  抽取时把这一层漏了（`docs/08-CAPABILITY-MAP.md` §5.1）。
+  取不到（被删/不可见）时该键不出现，`quoted_id` 仍在。**纯加法，不改不删。**
+- **写操作的 141 归到 `unauthorized`**：X 用 141 表达"这个账号被限制写操作"
+  （`User is suspended, deactivated or offboarded`）。实测：一个 0 推文、0 关注的账号
+  读全部正常、写全部 141。归到 `unauthorized` 是因为**外壳该做的事与登录失效一样**。
 - **契约版本 1.0.0 → 1.1.0 → 1.2.0 → 1.3.0**：只增 method/字段，不改不删（`docs/CONTRACT.md` §6）。
 - **新增 3 个 method**（1.3.0）：`auth.whoami`（登录校验，替代"外壳自己抓首页正则"）、
   `fetch.is_following`（关注态；组件内部缓存"我是谁"，换 cookie 自动失效）、
@@ -43,6 +50,11 @@
   各自 `additionalProperties: false`）与 `$defs/integrity`，`items` 指向它，
   并有契约守卫测试盯字段集合。此前机器可读契约在这里写的是
   `{"items": {"type": "object"}}`——等于把"猜"留给每个消费方。
+
+### 修复
+- **`xspiderd` 现在真的认 `XSPIDER_COOKIE`**：此前文档（与 `AGENTS.md` 的常用命令）都写了
+  "启动时注入凭据"，而实现里只有测试读这个变量，sidecar 根本没实现——文档在教一件不存在的事。
+  现在启动时注入，等价于先调一次 `auth.set_cookie`；**只进不出**，不打日志、不回显。
 
 ### 修复（M4 的消费者逼出来的）
 - **`dl.events {since: 0}` 被拒**：契约写的是"从 0 开始"，而实现把 0 当非法值挡回。

@@ -611,6 +611,17 @@
           ],
           "description": "被引用推文的 id。"
         },
+        "quoted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/post"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**被引用的那条推文**（引用卡片要显示正文/作者/媒体）。**只嵌一层**：引用里的引用不再展开（防递归）。取不到（被删/不可见）时该键不出现，此时仍有 `quoted_id` 可让外壳单独去取。"
+        },
         "in_reply_to_screen_name": {
           "type": [
             "string",
@@ -740,6 +751,17 @@
             "null"
           ],
           "description": "被引用推文的 id。"
+        },
+        "quoted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/post"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**被引用的那条推文**（引用卡片要显示正文/作者/媒体）。**只嵌一层**：引用里的引用不再展开（防递归）。取不到（被删/不可见）时该键不出现，此时仍有 `quoted_id` 可让外壳单独去取。"
         },
         "in_reply_to_screen_name": {
           "type": [

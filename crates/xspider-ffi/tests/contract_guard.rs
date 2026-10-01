@@ -201,7 +201,18 @@ fn every_error_field_is_declared_in_the_schema() {
 }
 
 /// 一个"字段全填满"的 Post，用来核对 schema 覆盖面。
+///
+/// `quoted` 也填上：守卫测试比的是**字段集合的相等**，而 `quoted` 走
+/// `skip_serializing_if`（None 时不出键）。样本里留空会让"DTO 有、schema 有"
+/// 这个事实看不出来。
 fn sample_post() -> Post {
+    let mut post = base_post();
+    post.quoted = Some(Box::new(base_post()));
+    post
+}
+
+/// `sample_post` 的单层版本（`quoted` 为空——引用只嵌一层，内层不再有引用）。
+fn base_post() -> Post {
     Post {
         id: "1".into(),
         created_at: Some("2009-09-30T12:34:56Z".into()),
@@ -241,6 +252,9 @@ fn sample_post() -> Post {
         },
         tags: vec!["rust".into()],
         quoted_id: Some("3".into()),
+        // 被引用的推文本身不进这个"字段名对照"的样本：它的形状就是 post 自己，
+        // 由 schema 的 $ref 保证（见 schema 的 post.quoted）
+        quoted: None,
         in_reply_to_screen_name: Some("other".into()),
         in_reply_to_id: Some("4".into()),
         retweeted_by: Some(PostAuthor {

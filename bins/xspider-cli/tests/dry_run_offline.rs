@@ -83,7 +83,17 @@ fn dry_run_offline_plans_three_media_and_reports_json() {
         "得说清这是离线回放，别让人以为下了真东西"
     );
     assert_eq!(report["dry_run"], true);
-    assert_eq!(report["contract_version"], "1.3.0");
+    // 只断言"报的是个语义化版本"，**不钉死具体值**：契约只会加法式演进，
+    // 而这条断言的价值是"报告里带了版本"，不是"版本恰好是几"。
+    // （1.4.0 加 `post.quoted` 时就因为这里写死 1.3.0 而红过一次。）
+    let version = report["contract_version"]
+        .as_str()
+        .expect("contract_version 必须是字符串");
+    assert_eq!(
+        version.split('.').count(),
+        3,
+        "契约版本应当是 x.y.z，实际 {version:?}"
+    );
 
     let plan = report["plan"].as_array().expect("plan 必须是数组");
     assert_eq!(plan.len(), 3, "fixture 那一页有 3 个媒体，--count 默认 3");

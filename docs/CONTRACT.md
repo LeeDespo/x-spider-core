@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.3.0**（由 `xspider_version()` 返回）
+> 契约版本：**1.4.0**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.3.0"
+char* xspider_version(void);                            // "1.4.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.3.0","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.4.0","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,7 +96,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.3.0）
+### 3.1 已实现（1.4.0）
 
 | method | 请求 | 响应 |
 |---|---|---|
@@ -255,7 +255,11 @@ HTTP 状态只表达"传输层发生了什么"：
   所以外壳不必自己传 `source_screen_name` 这类实现细节；
 - **这是写操作**：动的是用户的真实账号。失败会**原样上报**（不会吞掉、也不会谎报成功）；
 - 关注态返回 `false` 与"没查到"是两件事：结构对不上时组件报 `parse`（那是"X 改版了"），
-  而不是默默返回 `false`——后者会让界面显示错误的关注状态。
+  而不是默默返回 `false`——后者会让界面显示错误的关注状态；
+- **账号被 X 限制写操作时是 `unauthorized`**（上游错误码 141，"User is suspended,
+  deactivated or offboarded"）。实测一个 0 推文、0 关注的新账号：读全部正常，写全部 141。
+  归到 `unauthorized` 是因为**外壳该做的事与登录失效一样**（提示换账号/重新登录），
+  而不是一个让人去查文档的 `upstream`。
 
 ### 4.8 `fetch.get_user`
 
@@ -300,7 +304,10 @@ HTTP 状态只表达"传输层发生了什么"：
 - 请求里 `cursor` 传空字符串等价于没传；
 - `count` 缺省：推文类 20，`fetch.following` 100；
 - **同一个 `id` 在一页里只会出现一次**（组件的去重先于筛选），
-  重复转推不会让同一条推文出现两次。
+  重复转推不会让同一条推文出现两次；
+- **引用推文是内嵌的**（`post.quoted`，1.4.0）：正文、作者、媒体都在里面，引用卡片直接渲染；
+  **只嵌一层**（引用里的引用不再展开，防递归）。被引用的推文被删/不可见时该键不出现，
+  此时仍有 `quoted_id` 可以让外壳单独去取。
 
 ### 4.10 `fetch.user_tweets` 的两个开关
 

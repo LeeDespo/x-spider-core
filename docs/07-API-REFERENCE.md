@@ -11,7 +11,7 @@
 >
 > 本册不是开发日志：这里只写**当前版本的事实**。变更历史见 [`CHANGELOG.md`](../CHANGELOG.md)。
 
-**版本**：契约 `1.3.0` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
+**版本**：契约 `1.4.0` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ```bash
 $ xspiderd --port 0
-ready {"port":49152,"token":"…","version":"1.3.0","build":"0.1.0"}     # ← stdout，只有这一行
+ready {"port":49152,"token":"…","version":"1.4.0","build":"0.1.0"}     # ← stdout，只有这一行
 
 # 另开一个终端（port / token 用上面这一行里的）
 $ curl -s http://127.0.0.1:49152/ \
@@ -160,7 +160,7 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 ## 3. cdylib 形态
 
 ```c
-char* xspider_version(void);                                  // "1.3.0"
+char* xspider_version(void);                                  // "1.4.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放上面两个函数返回的字符串
 ```
@@ -187,7 +187,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 **出参**
 
 ```json
-{ "contract_version": "1.3.0", "build_version": "0.1.0", "transport": "sidecar" }
+{ "contract_version": "1.4.0", "build_version": "0.1.0", "transport": "sidecar" }
 ```
 
 | 字段 | 说明 |
@@ -414,6 +414,9 @@ void  xspider_free(char* ptr);                                // 释放上面两
   3. **成败看返回体**——X 对失败的突变返回的是 HTTP 200 + `errors[]`，
      只看状态码会给出"已点赞"的假象。组件已经把这一层处理掉了，外壳按 `code` 判断即可。
 - 关注类动作成功后，组件会失效关注态缓存；外壳侧若有自己的缓存也要同步失效。
+- **账号被 X 限制写操作时返回 `unauthorized`**（上游错误码 141）：实测一个 0 推文、
+  0 关注的新账号，读全部正常、写全部 141。此时**别重试、也别提示"网络错误"**，
+  该提示的是"这个账号现在不能执行写操作"。
 
 ---
 
@@ -652,6 +655,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
   "author": { "id": "…", "screen_name": "…", "name": "…", "avatar": "…" },
   "tags": ["rust"],
   "quoted_id": "…",
+  "quoted": { … },              // 被引用推文本体；只嵌一层
   "in_reply_to_screen_name": "…", "in_reply_to_id": "…",
   "retweeted_by": { … } }
 ```
@@ -671,7 +675,8 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `medias` | `media[]` | **无媒体时该键不出现**（不是空数组） |
 | `author` | `postAuthor` | 若原推被转推，这里是**原推作者** |
 | `tags` | string[] | 话题标签文本（不含 `#`） |
-| `quoted_id` | string \| null | 被引用推文的 id。**契约只给 id，没有内嵌正文**（见 §8） |
+| `quoted_id` | string \| null | 被引用推文的 id |
+| `quoted` | `post` \| null | **被引用的那条推文**（正文/作者/媒体都在里面），引用卡片直接渲染。**只嵌一层**：引用里的引用不再展开。被删/不可见时该键不出现，此时仍有 `quoted_id` 可单独去取 |
 | `in_reply_to_screen_name` | string \| null | 本条回复的是谁——是**被回复者**，不是本条作者 |
 | `in_reply_to_id` | string \| null | |
 | `retweeted_by` | `postAuthor` \| null | 转推时是谁转的；仅当 `include_retweets: true` 时出现 |
@@ -864,7 +869,6 @@ crawl.run { source: "medias", user_id, strategy: { since, until, limits: { max_p
 | 边界 | 说明 |
 |---|---|
 | **没有推送式事件流** | JSON-RPC 与 C ABI 都不支持流，所以统一用"带游标的增量轮询"（`dl.events`）。进程内形态另有 `subscribe()`。见 ADR-029 |
-| **没有 `quoted_post` 内嵌正文** | `post` 只给 `quoted_id`。外壳若要渲染引用推文的正文，需另调 `fetch.tweet_detail`。见 `docs/06` §5 |
 | **`crawl.run` 是"跑到停为止"** | 受 `max_pages` 约束；长爬取请用小页数反复调用 |
 | **`crawl` 的 `size_hint` 恒为 `null`** | GraphQL 不提供字节数；真实大小由下载队列在下载前探测 |
 | **`net.set_limits.cdn_concurrency` 只在队列创建时生效** | 信号量不能缩容。要"运行中调并发"需要另外的接口 |

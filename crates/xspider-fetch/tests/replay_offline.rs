@@ -193,6 +193,43 @@ async fn user_medias_paginates_with_the_returned_cursor() {
     );
 }
 
+/// 引用推文的正文要真的解析出来（契约 1.4.0 的 `post.quoted`）。
+///
+/// 用**真实 fixture**（`user_medias/page1.json` 里那条带 `quoted_status_result` 的推文）
+/// 钉住：形状认不认、`quoted_id` 与内嵌对象是不是同一条、内层作者取不取得到。
+/// 合成样本只能证明"代码按我理解的样子工作"，真实响应才能证明"X 就是这么给的"。
+#[tokio::test]
+async fn quoted_tweet_comes_from_a_real_fixture() {
+    let client = client();
+    let cancel = CancelToken::new();
+    let page = client
+        .user_medias("13298072", None, None, &cancel)
+        .await
+        .expect("首页必须解析成功");
+
+    let with_quoted: Vec<&Post> = page.items.iter().filter(|p| p.quoted.is_some()).collect();
+    assert_eq!(
+        with_quoted.len(),
+        1,
+        "这条 fixture 里恰好有一条带引用的推文；多/少都说明解析或筛选变了"
+    );
+
+    let post = with_quoted[0];
+    let quoted = post.quoted.as_ref().expect("上面刚筛过");
+    assert!(!quoted.full_text.is_empty(), "引用推文的正文不能是空的");
+    assert!(
+        !quoted.author.screen_name.is_empty(),
+        "引用推文的作者要取得到（引用卡片要显示它）"
+    );
+    assert_eq!(
+        post.quoted_id.as_deref(),
+        Some(quoted.id.as_str()),
+        "`quoted_id` 与内嵌对象必须是同一条推文"
+    );
+    // 只嵌一层：内层不再有引用（这条 fixture 本来也没有，那是形状事实）
+    assert!(quoted.quoted.is_none());
+}
+
 #[tokio::test]
 async fn every_page_has_unique_ids() {
     // docs/02 §C3：重复 id 会让下游去重表/渲染错乱

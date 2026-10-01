@@ -33,7 +33,7 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 只有三个 C ABI 函数，所有能力都走一个入口：
 
 ```c
-char* xspider_version(void);                                  // 契约版本握手，如 "1.3.0"
+char* xspider_version(void);                                  // 契约版本握手，如 "1.4.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放返回的字符串
 ```
@@ -93,7 +93,7 @@ XSPIDER_ARIA2_PATH=/path/to/aria2next ./script/package.sh   # 顺带带上 Aria2
 手动起 sidecar：
 
 ```bash
-cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.3.0"}
+cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.4.0"}
 
 # 另开一个终端，用上面读到的 port 与 token
 curl -s http://127.0.0.1:$PORT/ -H "X-XSpider-Token: $TOKEN" -H 'Content-Type: application/json' \

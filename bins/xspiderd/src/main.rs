@@ -91,6 +91,23 @@ async fn serve(args: Args, engine: Engine) -> Result<(), String> {
     spawn_signal_handlers(shutdown.clone());
     spawn_parent_watchdog(shutdown.clone());
 
+    // `XSPIDER_COOKIE`：启动即注入凭据（等价于外壳先调一次 `auth.set_cookie`）。
+    // 给 CLI / 脚本 / 手工调试用——外壳仍应从 Keychain 读、经契约注入。
+    // 与一切凭据同等对待：**只进不出**，不打印、不回显、不落盘。
+    match std::env::var("XSPIDER_COOKIE") {
+        Ok(cookie) if !cookie.trim().is_empty() => {
+            match engine
+                .call("auth.set_cookie", &serde_json::json!({ "cookie": cookie }))
+                .await
+            {
+                Ok(_) => tracing::info!("已从 XSPIDER_COOKIE 注入凭据"),
+                // 不打内容，只说"没被接受"——早失败好过后面拿必然 403 的请求去排查
+                Err(e) => return Err(format!("XSPIDER_COOKIE 无效：{e}")),
+            }
+        }
+        _ => {}
+    }
+
     if args.stdio {
         // stdio 模式下 stdout 只走 JSON Lines，ready 行改到 stderr 做诊断
         eprintln!(

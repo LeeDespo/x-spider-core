@@ -259,8 +259,14 @@ fn ensure_mutation_succeeded(endpoint: &'static str, body: &Value) -> XResult<()
     if let Some(errors) = body.get("errors").and_then(Value::as_array) {
         if let Some(first) = errors.first() {
             let code = first.get("code").and_then(Value::as_i64);
-            // 实测遇到过的两类：144（GraphQL：没有这条推文）、34（v1.1：页面不存在）。
-            // 认证类的 32/89/99/215 也归到 unauthorized，让外壳提示"重新登录"。
+            // 实测遇到过的三类：
+            // - 144（GraphQL：没有这条推文）、34（v1.1：页面不存在）→ not_found；
+            // - 32/89/99/215（认证类）、以及 **141**（"User is suspended, deactivated or
+            //   offboarded"——账号被限制写操作）→ unauthorized。
+            //   141 归到这里，是因为**外壳该做的事与登录失效完全一样**：提示换账号 / 重新登录，
+            //   而不是当成一个让人去查文档的 upstream。
+            //   实测证据：一个 0 推文、0 关注的新账号，读全部正常（whoami / 时间线 / 详情），
+            //   只有写操作稳定返回 141——所以那不是请求构造错了，是账号本身不能写。
             let message = first
                 .get("message")
                 .and_then(Value::as_str)
@@ -268,7 +274,9 @@ fn ensure_mutation_succeeded(endpoint: &'static str, body: &Value) -> XResult<()
                 .to_string();
             let error = match code {
                 Some(144) | Some(34) => XError::not_found(message),
-                Some(32) | Some(89) | Some(99) | Some(215) => XError::unauthorized(message),
+                Some(32) | Some(89) | Some(99) | Some(215) | Some(141) => {
+                    XError::unauthorized(message)
+                }
                 _ => XError::upstream(
                     200,
                     match code {
@@ -401,6 +409,18 @@ fn mutation_success_is_decided_by_the_body_not_the_status_code() {
     let err = ensure_mutation_succeeded(
         ENDPOINT_MUTATE,
         &json!({ "errors": [{ "code": 32, "message": "Could not authenticate you." }] }),
+    )
+    .unwrap_err();
+    assert_eq!(err.code(), xspider_core::error::ErrorCode::Unauthorized);
+
+    // 141 = "User is suspended, deactivated or offboarded" → 也归 unauthorized。
+    // 这条是**实测出来的**：一个 0 推文、0 关注的新账号，读全部正常，
+    // 只有写操作稳定返回 141。外壳对这种账号能做的事与登录失效一样（换账号/重新登录），
+    // 所以不该让它落进 upstream 变成一个"看起来像服务端出问题"的错误码。
+    let err = ensure_mutation_succeeded(
+        ENDPOINT_MUTATE,
+        &json!({ "errors": [{ "code": 141,
+            "message": "Authorization: User (uid: 1) is suspended, deactivated or offboarded" }] }),
     )
     .unwrap_err();
     assert_eq!(err.code(), xspider_core::error::ErrorCode::Unauthorized);

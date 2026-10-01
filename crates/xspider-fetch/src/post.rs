@@ -143,6 +143,13 @@ pub struct Post {
     /// 引用/转推关系。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quoted_id: Option<String>,
+    /// **被引用的那条推文**——引用卡片要显示正文、作者与媒体。
+    ///
+    /// **只嵌一层**：引用里的引用不再展开（参考实现也是 `includeQuoted: false`），
+    /// 既防递归，也免得一条推文变成一棵没有边界的树。
+    /// 取不到（被删/不可见）时该键不出现，此时仍有 `quoted_id` 可让外壳单独去取。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quoted: Option<Box<Post>>,
     /// 「本条回复的是谁」——必须用**被回复者**，不是本条作者（`docs/02` §C2）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to_screen_name: Option<String>,
@@ -168,6 +175,28 @@ impl Post {
 /// 见到 `TweetUnavailable`、或结构变化导致认不出来，都走这条路，
 /// 由调用方按"整页候选是否全废"来决定要不要报 `parse`。
 pub fn parse_post(result: &Value) -> Option<Post> {
+    parse_post_inner(result, false)
+}
+
+/// 被引用的推文怎么取。**两层形状都认**（参考实现的两条路径）：
+/// `result.quoted_status_result` 优先，退回 `result.legacy.quoted_status_result`；
+/// 内层可能是 `{result: …}`、`{tweet: …}`，也可能直接就是推文对象。
+fn parse_quoted(result: &Value) -> Option<Box<Post>> {
+    let wrapper = result.get("quoted_status_result").or_else(|| {
+        result
+            .get("legacy")
+            .and_then(|l| l.get("quoted_status_result"))
+    })?;
+    let inner = wrapper
+        .get("result")
+        .or_else(|| wrapper.get("tweet"))
+        .unwrap_or(wrapper);
+    // `true` = 这一层不再往下嵌引用（只嵌一层）
+    parse_post_inner(inner, true).map(Box::new)
+}
+
+/// `nested_quoted` 为 `true` 时表示"正在解析被引用的推文"，不再往下嵌一层。
+fn parse_post_inner(result: &Value, nested_quoted: bool) -> Option<Post> {
     let result = unwrap_visibility(result);
     let id = result.get("rest_id")?.as_str()?.to_string();
 
@@ -200,6 +229,14 @@ pub fn parse_post(result: &Value) -> Option<Post> {
         })
         .unwrap_or_default();
 
+    // 先算被引用的推文：`quoted_id` 优先由它给（这样 id 与正文必然来自同一条，
+    // 不会出现"有 id 没正文"或"正文与 id 对不上"）
+    let quoted = if nested_quoted {
+        None
+    } else {
+        parse_quoted(result)
+    };
+
     Some(Post {
         id,
         created_at: nested_str(legacy, &[&["created_at"]])
@@ -224,13 +261,21 @@ pub fn parse_post(result: &Value) -> Option<Post> {
         medias,
         author,
         tags,
-        quoted_id: result
-            .get("quoted_status_result")
-            .and_then(|q| q.get("result"))
-            .map(unwrap_visibility)
-            .and_then(|r| r.get("rest_id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        quoted_id: quoted.as_ref().map(|p| p.id.clone()).or_else(|| {
+            result
+                .get("quoted_status_result")
+                .or_else(|| {
+                    result
+                        .get("legacy")
+                        .and_then(|l| l.get("quoted_status_result"))
+                })
+                .and_then(|q| q.get("result").or_else(|| q.get("tweet")))
+                .map(unwrap_visibility)
+                .and_then(|r| r.get("rest_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        }),
+        quoted,
         in_reply_to_screen_name: str_field(legacy, "in_reply_to_screen_name"),
         in_reply_to_id: str_field(legacy, "in_reply_to_status_id_str"),
         retweeted_by: None,
@@ -884,5 +929,109 @@ mod tests {
             "https://pbs.twimg.com/profile_images/1/x.png"
         );
         assert_eq!(normalize_avatar(""), "");
+    }
+
+    // ---- 引用推文（`quoted`，契约 1.4.0）----
+
+    /// 内层推文的最小形状（跟 `tweet_result()` 同构，换个 id 与正文）。
+    fn quoted_tweet_result(id: &str, text: &str) -> Value {
+        json!({
+            "rest_id": id,
+            "__typename": "Tweet",
+            "legacy": {
+                "full_text": text,
+                "created_at": "Wed Sep 09 18:25:24 +0000 2026",
+                "favorite_count": 1,
+                "retweet_count": 2,
+                "reply_count": 3,
+                "favorited": false,
+                "retweeted": false,
+                "bookmarked": true
+            },
+            "core": { "user_results": { "result": {
+                "rest_id": "77",
+                "legacy": {
+                    "screen_name": "quoted_author",
+                    "name": "Quoted Author",
+                    "profile_image_url_https": "https://pbs.twimg.com/profile_images/q.jpg"
+                }
+            }}}
+        })
+    }
+
+    #[test]
+    fn quoted_tweet_is_embedded_with_its_text_and_author() {
+        let mut value = tweet_result();
+        value["quoted_status_result"] =
+            json!({ "result": quoted_tweet_result("77", "被引用的正文") });
+        let post = parse_post(&value).expect("应能解析");
+
+        let quoted = post.quoted.as_ref().expect("引用推文要嵌进来");
+        assert_eq!(quoted.id, "77");
+        assert_eq!(quoted.full_text, "被引用的正文");
+        assert_eq!(quoted.author.screen_name, "quoted_author");
+        // `quoted_id` 与内嵌对象必须来自同一条，不能一个有一个没有
+        assert_eq!(post.quoted_id.as_deref(), Some("77"));
+    }
+
+    /// 两种包裹形状都要认：`{result: …}` / `{tweet: …}`，以及直接就是推文对象。
+    /// 另外 `legacy.quoted_status_result` 是参考实现里的兜底路径。
+    #[test]
+    fn quoted_accepts_every_wrapper_shape() {
+        for wrapper in [
+            json!({ "result": quoted_tweet_result("77", "A") }),
+            json!({ "tweet": quoted_tweet_result("77", "A") }),
+            quoted_tweet_result("77", "A"),
+        ] {
+            let mut value = tweet_result();
+            value["quoted_status_result"] = wrapper;
+            let post = parse_post(&value).expect("应能解析");
+            assert_eq!(
+                post.quoted.as_ref().map(|q| q.full_text.as_str()),
+                Some("A"),
+                "包裹形状没认出来"
+            );
+        }
+
+        // 兜底：引用挂在 `legacy` 下面
+        let mut value = tweet_result();
+        value["legacy"]["quoted_status_result"] =
+            json!({ "result": quoted_tweet_result("77", "来自 legacy") });
+        let post = parse_post(&value).expect("应能解析");
+        assert_eq!(
+            post.quoted.as_ref().map(|q| q.full_text.as_str()),
+            Some("来自 legacy")
+        );
+    }
+
+    /// **只嵌一层**：引用里的引用不再展开（既防递归，也不让一条推文变成一棵无界的树）。
+    #[test]
+    fn quoted_is_only_one_level_deep() {
+        let mut inner = quoted_tweet_result("77", "第一层引用");
+        inner["quoted_status_result"] =
+            json!({ "result": quoted_tweet_result("88", "第二层引用") });
+        let mut value = tweet_result();
+        value["quoted_status_result"] = json!({ "result": inner });
+
+        let post = parse_post(&value).expect("应能解析");
+        let quoted = post.quoted.as_ref().expect("第一层要有");
+        assert_eq!(quoted.full_text, "第一层引用");
+        assert!(quoted.quoted.is_none(), "第二层不该再展开");
+        // 但 id 仍然给出来，外壳想追可以自己再取
+        assert_eq!(quoted.quoted_id.as_deref(), Some("88"));
+    }
+
+    /// 引用推文被删/不可见时：**不报错、不编造**，只给 `quoted_id`。
+    #[test]
+    fn unavailable_quoted_keeps_only_the_id() {
+        let mut value = tweet_result();
+        value["quoted_status_result"] = json!({ "result": {
+            "rest_id": "77",
+            "__typename": "TweetUnavailable",
+            "reason": "Deleted"
+        }});
+        let post = parse_post(&value).expect("本条推文仍要返回");
+        assert!(post.quoted.is_none(), "取不到就不该有对象");
+        assert_eq!(post.quoted_id.as_deref(), Some("77"), "id 仍要保留");
     }
 }

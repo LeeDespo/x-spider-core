@@ -30,7 +30,7 @@ use crate::sidecar::{locate_sidecar, RpcError, Sidecar};
 ///
 /// 外壳的纪律（`docs/CONTRACT.md` §6）：启动握手，**主版本不同就拒绝启动**
 /// 并给出可操作提示；次版本不同只提示（method 与字段只增不改不删）。
-const WRITTEN_AGAINST: &str = "1.3.0";
+const WRITTEN_AGAINST: &str = "1.4.0";
 
 fn main() {
     let parsed = match args::parse(std::env::args().skip(1)) {
