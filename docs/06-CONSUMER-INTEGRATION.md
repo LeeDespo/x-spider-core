@@ -188,3 +188,51 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
 
 每接一个新消费方（或者同一个消费方改形态：sidecar ↔ cdylib），回来更新 §3 的清单与 §4 的发现。
 `docs/01` 讲的是**组件自己的边界**，这一册讲的是**别人接它时会遇到什么**——两者不要混。
+
+---
+
+## 7. 接入实录（2026-10-01，`x-spider-mac`）
+
+**已经接上的**（分支 `feat/xspider-core-integration`，回退点 tag `pre-component-integration`）：
+
+| 项 | 状态 |
+|---|---|
+| 组件运行时（起进程 / ready 行握手 / JSON-RPC / 崩溃自愈 / 退出时优雅关停） | ✅ `Services/XSpiderComponent.swift` |
+| JSON → 应用模型（`TwitterPost` / `TwitterUser` / `TwitterMedia` / `ReplyNode` 含深度） | ✅ `Services/XSpiderMapping.swift` |
+| 取数全部走组件（getUser / getFollowing / getUserMedias / getUserTweets / getHomeTimeline / searchTimeline / getTweet / getTweetDetailTree） | ✅ 签名不变，调用方零改动 |
+| 删除已被替代的实现 | ✅ `SearchQueryIdProvider.swift`（queryId 自愈现在在组件里） |
+| 组件的**外部目录**部署（换文件即换组件） | ✅ `~/Library/Application Support/moe.keli.xspider.mac/XSpiderCore/` |
+
+实测证据（`Tests/XSpiderMacTests/ComponentLiveTests.swift`，`TEST_RUNNER_XSPIDER_LIVE=1` 时跑）：
+
+```
+Test Case 'testComponentIsReachableAndReportsTransport' passed (0.068 seconds)
+Test Case 'testFetchUserThroughTheAppPath' passed (3.587 seconds)
+Test Case 'testFetchUserMediasThroughTheAppPath' passed (4.294 seconds)
+```
+
+另外实测：应用退出后组件进程**一并消失**（无残留）——那正是 `applicationShouldTerminate`
+返回 `.terminateLater` 换来的。
+
+**还没接的**（下一轮，按价值排序）：
+
+1. **下载仍走本机实现**（`Aria2Engine` + `URLSession` + `DownloadStore` 自建队列）。
+   组件的 `dl.*` 与运行时都已就绪，迁移路径见本文 §3.3 与 `docs/07` §3.4；
+   做完之后可删：`Services/Aria2Engine.swift`、`Services/Aria2RPCClient.swift`、
+   `Stores/DownloadStore.swift` 里的调度与续传部分；`FileIntegrity` **保留**（§5.4 的决定）。
+2. **点赞 / 转推 / 书签（`fetch.mutate`）仍在应用侧**：组件尚未实现写操作，所以
+   `NetworkClient` / `XClientTransaction` / `RequestGate` 暂时还活着（它们服务这条路径）。
+   组件补上 `fetch.mutate` 之后，这三个文件才轮得到删除。
+3. **账户探测**（抓 `x.com` 首页 HTML 取 `screen_name` / 头像）仍是应用侧实现。
+   组件可以补一个 `auth.whoami`（它为了签名本来就要抓同一个页面），补上之后这块也能删。
+4. 取数侧的旧解析函数（`extractPostsFrom*` / `mapTwitterPost` / `extractReplyNodes` 等）
+   现在只有测试在引用——随测试一起删，属于"清尾"。
+
+**这一轮踩到的两个 Swift 6 细节**（下次接入别的外壳也会撞上）：
+
+- `Any` 不是 `Sendable`：`[String: Any]` 跨 actor 边界会被拒（
+  `sending 'params' risks causing data races`）。解法是给契约参数/结果一个
+  `Sendable` 的 `JSONValue` 枚举（`Services/XSpiderJSON.swift`）。
+- `NSLock.lock()/unlock()` 在 async 上下文里被标记为不可用，要用作用域式的
+  `withLock`；`ISO8601DateFormatter` 这类格式化器要显式 `nonisolated(unsafe)` +
+  只配置一次（每次新建才是真的坑）。
