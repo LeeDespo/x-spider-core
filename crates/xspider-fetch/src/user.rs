@@ -41,6 +41,9 @@ pub struct FetchClient {
     stack: HttpStack,
     /// 搜索端点的 queryId 可能失效，需要自愈（`docs/02` §A3）。
     search_query_ids: crate::search_query_id::SearchQueryIdProvider,
+    /// "我是谁"的进程内缓存：`is_following` 每条都要用它，而它要抓一次首页。
+    /// **换 cookie 时必须清**（`invalidate_account_cache`），否则会拿旧账号的身份去查。
+    account: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl FetchClient {
@@ -48,7 +51,12 @@ impl FetchClient {
         Self {
             stack,
             search_query_ids: crate::search_query_id::SearchQueryIdProvider::new(),
+            account: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    pub(crate) fn account_cache(&self) -> &std::sync::Mutex<Option<String>> {
+        &self.account
     }
 
     pub fn stack(&self) -> &HttpStack {

@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.2.0**（由 `xspider_version()` 返回）
+> 契约版本：**1.3.0**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.2.0"
+char* xspider_version(void);                            // "1.3.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.2.0","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.3.0","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,13 +96,14 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.2.0）
+### 3.1 已实现（1.3.0）
 
 | method | 请求 | 响应 |
 |---|---|---|
 | `system.version` | `{}` | `{contract_version, build_version, transport}` |
 | `system.methods` | `{}` | `{methods: [string]}` |
 | `auth.set_cookie` | `{cookie, csrf?}` | `{ok}` |
+| `auth.whoami` | `{}` | `{account}` |
 | `net.set_limits` | `{api_rps, api_burst, cdn_concurrency, cooldown_s}` | `{ok}` |
 | `net.set_proxy` | `{url}` | `{ok}` |
 | `net.status` | `{}` | `{state, rate_limited_until?, retry_after_s?}` |
@@ -114,6 +115,8 @@ HTTP 状态只表达"传输层发生了什么"：
 | `fetch.search_timeline` | `{screen_name, since, until, media_only?, cursor?}` | `page<post>` |
 | `fetch.home_timeline` | `{mode, cursor?}` | `page<post>` |
 | `fetch.following` | `{user_id, cursor?, count?}` | `page<user>` |
+| `fetch.is_following` | `{screen_name}` | `{following}` |
+| `fetch.mutate` | `{action, tweet_id?, screen_name?}` | `{ok}` |
 | `dl.enqueue` | `{job_id, url, dest_dir, file_name, expect_size?, requirements?, tag?, skip_if_present?}` | `{accepted_by}` |
 | `dl.pause` / `dl.resume` / `dl.cancel` | `{job_id}` | `{ok}` |
 | `dl.status` | `{job_id}` | `{job}` |
@@ -133,14 +136,13 @@ HTTP 状态只表达"传输层发生了什么"：
 所以外壳若想"有退出项才显示退出项"，就得问 `transport`，而不是硬编码"我是 sidecar"
 （`docs/DECISIONS.md` ADR-037）。
 
-### 3.3 已登记、**尚未实现**（M1，现在调用会得到 `invalid_request`）
+### 3.3 已登记、**尚未实现**（调用会得到 `invalid_request`）
 
 > 列在这里是为了让外壳提前看到形状，**不代表现在可调用**。
-> 按 `docs/00-KICKOFF.md` §4：垂直切片通过之前不铺开端点。
 
-`fetch.mutate`（点赞/转推/书签）/ `dl.plan` / `dl.report`（`host` 逃生舱）
+`dl.plan` / `dl.report`（`host` 逃生舱，给 iOS 后台 `URLSession` 一类平台强约束）。
 
-它们的形状见 `docs/01-ARCHITECTURE.md` §3–§5。
+它们的形状见 `docs/01-ARCHITECTURE.md` §5。**写操作 `fetch.mutate` 已实现**（1.2.0）。
 
 ---
 
@@ -221,6 +223,40 @@ HTTP 状态只表达"传输层发生了什么"：
   组件自己也会探（ADR-032）。这个 method 是给外壳在**决定下不下之前**
   做体积判断用的（例如"超过 100 MB 才交给 Aria2Next"）。
 
+### 4.6 `auth.whoami`
+
+```json
+{}
+// →
+{ "account": { "screen_name": "jack", "avatar": "https://…", "id": "12" } }
+```
+
+- **它是登录校验**：抓一次 x.com 首页，页面里**没有** `screen_name` 就是 cookie 失效，
+  报 `unauthorized`（不是 `parse`——X 用"空数据"表达这类状态，`docs/02` §A5）；
+- `id` 可能缺失（首面 HTML 里偶尔没有），缺失时是 `null`：外壳需要 id 时再用
+  `fetch.get_user` 补一次即可；
+- 这一条替代了此前每个外壳都要自己写的"抓首页 + 正则"。
+
+### 4.7 关注态与写操作（`fetch.is_following` / `fetch.mutate`）
+
+```json
+{ "screen_name": "jack" }                    // fetch.is_following
+// → { "following": true }
+
+{ "action": "favorite", "tweet_id": "123…" } // fetch.mutate
+{ "action": "follow", "screen_name": "jack" }
+// → { "ok": true }
+```
+
+- `action` 取值：`favorite` / `unfavorite` / `retweet` / `unretweet` / `bookmark` /
+  `unbookmark` / `follow` / `unfollow`；**推文类动作要 `tweet_id`，关注类要 `screen_name`**，
+  缺哪一个都会得到指名道姓的 `invalid_request`（校验在发请求之前）；
+- 组件内部**缓存了"我是谁"**（`fetch.is_following` 每次都要用它），换 cookie 时自动失效——
+  所以外壳不必自己传 `source_screen_name` 这类实现细节；
+- **这是写操作**：动的是用户的真实账号。失败会**原样上报**（不会吞掉、也不会谎报成功）；
+- 关注态返回 `false` 与"没查到"是两件事：结构对不上时组件报 `parse`（那是"X 改版了"），
+  而不是默默返回 `false`——后者会让界面显示错误的关注状态。
+
 ### 4.6 `fetch.get_user`
 
 ```json
@@ -243,7 +279,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - `screen_name` 为空 → `invalid_request`；
 - 用户不存在 → `not_found`（不是 `parse`，也不是空结果）。
 
-### 4.7 分页约定（`fetch.user_medias` / `fetch.user_tweets` / `fetch.search_timeline` / `fetch.home_timeline`）
+### 4.8 分页约定（`fetch.user_medias` / `fetch.user_tweets` / `fetch.search_timeline` / `fetch.home_timeline`）
 
 ```json
 // 请求：首页不要带 cursor —— **连这个键都不要出现**
@@ -266,7 +302,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - **同一个 `id` 在一页里只会出现一次**（组件的去重先于筛选），
   重复转推不会让同一条推文出现两次。
 
-### 4.8 `fetch.user_tweets` 的两个开关
+### 4.9 `fetch.user_tweets` 的两个开关
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
@@ -277,7 +313,7 @@ HTTP 状态只表达"传输层发生了什么"：
 那是**客户端筛选**的结果，**不是"到底"**。此时 `end` 仍为 `false` 且 `cursor` 仍会返回，
 调用方应当继续翻页（`docs/02` §D5：到底判据只看服务端原始条数）。
 
-### 4.9 `fetch.search_timeline` 的日期语义
+### 4.10 `fetch.search_timeline` 的日期语义
 
 - `since` / `until` 是 **`YYYY-MM-DD` 的日历日期**，按**用户本地日历**理解；
   组件**不做时区换算**（所以不存在"UTC 差一天"的坑）；
@@ -286,7 +322,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - `media_only` 默认 `true`：走服务端的媒体筛选，比取回来再筛**更省请求也更省配额**；
 - 非法日期（如 `2026-02-30`）会在**发请求之前**被拒（`invalid_request`）。
 
-### 4.10 `fetch.tweet_detail`
+### 4.11 `fetch.tweet_detail`
 
 ```json
 { "focal": { "id": "…", "full_text": "…" },
@@ -300,7 +336,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - 广告条目已被过滤，`focal` 不会出现在 `replies` 里；
 - 目前上游不返回详情的翻页游标，因此 `cursor` 通常不出现。
 
-### 4.11 下载任务（`dl.*`）
+### 4.12 下载任务（`dl.*`）
 
 ```json
 // 入队：job_id 由**外壳生成**，组件按它幂等
@@ -370,7 +406,7 @@ HTTP 状态只表达"传输层发生了什么"：
 **为什么不是流**：JSON-RPC 的请求/响应包络与 C ABI 都不支持流；用"带游标的增量"
 在三种形态下行为完全一致（进程内还能用 `subscribe()` 拿真流）。见 `docs/DECISIONS.md` ADR-029。
 
-### 4.12 爬取（`crawl.run`）
+### 4.13 爬取（`crawl.run`）
 
 ```json
 { "source": "medias", "user_id": "13298072",

@@ -91,6 +91,7 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
 | method | 入参 | 出参 | 说明 |
 |---|---|---|---|
 | `auth.set_cookie` | `{cookie, csrf?}` | `{ok}` | **只进不出**：不回显、不落盘、不打日志。缺 `ct0` 会被拒 |
+| `auth.whoami` | `{}` | `{account}` | **登录校验**：页面里没有 `screen_name` 就是 cookie 失效 → `unauthorized`。替代"每个外壳自己抓首页正则" |
 | `net.set_limits` | `{api_rps, api_burst, cdn_concurrency, cooldown_s}` | `{ok}` | 四个都必填。接口与 CDN 是**两套配额** |
 | `net.set_proxy` | `{url}` | `{ok}` | `url: null` = 关闭代理；**字段不能缺**。运行中可换，取数与下载一起换 |
 | `net.status` | `{}` | `{state, rate_limited_until?, retry_after_s?}` | 冷却**到期自然失效**，不需要谁来清除 |
@@ -109,6 +110,8 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
 | `fetch.search_timeline` | `{screen_name, since, until, media_only?, cursor?}` | `page<post>` |
 | `fetch.home_timeline` | `{mode: "for_you"\|"following", cursor?}` | `page<post>` |
 | `fetch.following` | `{user_id, cursor?, count?}` | `page<user>` |
+| `fetch.is_following` | `{screen_name}` | `{following}` | 组件内部缓存"我是谁"，外壳不必传 `source_screen_name` |
+| `fetch.mutate` | `{action, tweet_id?, screen_name?}` | `{ok}` | **写操作**。`action` ∈ favorite/unfavorite/retweet/unretweet/bookmark/unbookmark/follow/unfollow |
 
 要点（每条都有实测依据，见 `docs/02`）：
 
@@ -277,8 +280,9 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
 
 ## 7. 两个"看起来该有但没有"的东西
 
-- **`fetch.mutate`（点赞/转推/书签）尚未实现**。参考实现里有对应 queryId，
-  但写操作的风险边界（动的是用户的真实账号）需要单独确认，所以登记在
-  `CONTRACT.md` §3.3 而未实现。调用会得到 `invalid_request`。
+- **写操作已经实现**（`fetch.mutate`，1.2.0 起）。三条纪律写在契约里：
+  参数校验在发请求**之前**；失败**原样上报**（不吞、不谎报成功）；
+  **成败看返回体**——X 对失败的突变返回的是 HTTP 200 + `errors[]`，
+  只看状态码会给出"已点赞"的假象。
 - **没有推送式事件流**。JSON-RPC 的请求/响应包络与 C ABI 都不支持流，
   所以统一用"带游标的增量轮询"（三种形态行为一致）；进程内形态另有 `subscribe()`。

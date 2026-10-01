@@ -222,6 +222,57 @@ pub(crate) const FOLLOWING: GraphQlEndpoint = GraphQlEndpoint {
     features: USER_MEDIA.features,
 };
 
+// ---------------------------------------------------------------------------
+// 突变端点（点赞 / 转推 / 书签）
+// ---------------------------------------------------------------------------
+
+/// 突变端点的**形状与查询不同**：POST + `variables` 在 query string、**不带 body**，
+/// 也不带 `features`（参考实现的 `TwitterAPI.mutate` 就是这个形状，照抄）。
+/// 每条 queryId 都逐字来自参考实现。
+pub(crate) const FAVORITE_TWEET: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "FavoriteTweet",
+    query_id: "lI07N6Otwv1PhnEgXILM7A",
+    method: HttpMethod::Post,
+    features: "",
+};
+pub(crate) const UNFAVORITE_TWEET: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "UnfavoriteTweet",
+    query_id: "ZYKSe-w7KEslx3JhSIk5LA",
+    method: HttpMethod::Post,
+    features: "",
+};
+pub(crate) const CREATE_RETWEET: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "CreateRetweet",
+    query_id: "mbRO74GrOvSfRcJnlMapnQ",
+    method: HttpMethod::Post,
+    features: "",
+};
+pub(crate) const DELETE_RETWEET: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "DeleteRetweet",
+    query_id: "ZyZigVsNiFO6v1dEks1eWg",
+    method: HttpMethod::Post,
+    features: "",
+};
+pub(crate) const CREATE_BOOKMARK: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "CreateBookmark",
+    query_id: "aoDbu3RHznuiSkQ9aNM67Q",
+    method: HttpMethod::Post,
+    features: "",
+};
+pub(crate) const DELETE_BOOKMARK: GraphQlEndpoint = GraphQlEndpoint {
+    operation: "DeleteBookmark",
+    query_id: "Wlmlj2-xzyS1GN3a6cj-mQ",
+    method: HttpMethod::Post,
+    features: "",
+};
+
+/// 关注 / 取关走 **v1.1 REST**（`api.twitter.com`）而不是 GraphQL：
+/// x.com 域名对该端点 401，参考实现里带着这条实测注释。
+pub(crate) const FRIENDSHIPS_CREATE: &str = "/1.1/friendships/create.json";
+pub(crate) const FRIENDSHIPS_DESTROY: &str = "/1.1/friendships/destroy.json";
+/// 关注态查询（`source.following` = 我有没有关注 target）。
+pub(crate) const FRIENDSHIPS_SHOW: &str = "/1.1/friendships/show.json";
+
 /// `home_timeline` 的两种模式。**两种模式的 operationName 与 queryId 都不同**
 /// （这不是笔误：`following` 模式用的是 `HomeLatestTimeline`）。
 pub(crate) fn match_home_mode(mode: &str) -> xspider_core::error::XResult<GraphQlEndpoint> {
@@ -246,6 +297,12 @@ pub(crate) fn all_endpoints() -> Vec<GraphQlEndpoint> {
         HOME_TIMELINE,
         HOME_LATEST_TIMELINE,
         FOLLOWING,
+        FAVORITE_TWEET,
+        UNFAVORITE_TWEET,
+        CREATE_RETWEET,
+        DELETE_RETWEET,
+        CREATE_BOOKMARK,
+        DELETE_BOOKMARK,
     ]
 }
 
@@ -270,11 +327,23 @@ mod tests {
         );
     }
 
-    /// 搜索必须 POST：GET 一律 404，且与 queryId 无关（docs/02 §A2）。
+    /// POST 的**只有两类**，且各有实测依据：
+    /// 搜索（GET 一律 404，`docs/02` §A2）与突变（写操作本来就是 POST）。
+    ///
+    /// 例外写在代码里而不是"按方法名判断"，这样新增端点时必须显式表态。
     #[test]
-    fn only_search_uses_post() {
+    fn only_search_and_mutations_use_post() {
+        const POST_OPERATIONS: &[&str] = &[
+            "SearchTimeline",
+            "FavoriteTweet",
+            "UnfavoriteTweet",
+            "CreateRetweet",
+            "DeleteRetweet",
+            "CreateBookmark",
+            "DeleteBookmark",
+        ];
         for ep in all_endpoints() {
-            let expected = if ep.operation == "SearchTimeline" {
+            let expected = if POST_OPERATIONS.contains(&ep.operation) {
                 HttpMethod::Post
             } else {
                 HttpMethod::Get
@@ -283,9 +352,34 @@ mod tests {
         }
     }
 
+    /// 突变端点**不带 features**（参考实现的 `mutate` 传的就是 nil）。
+    /// 把它们从"features 必须是合法 JSON"的检查里显式排除——顺带钉住这条事实。
+    #[test]
+    fn mutations_carry_no_features_and_reads_carry_json_features() {
+        for ep in all_endpoints() {
+            let is_mutation = ep.method == HttpMethod::Post && ep.operation != "SearchTimeline";
+            if is_mutation {
+                assert!(
+                    ep.features.is_empty(),
+                    "{} 是突变，不该带 features（带上会 400）",
+                    ep.operation
+                );
+            } else {
+                assert!(
+                    !ep.features.is_empty(),
+                    "{} 是读取端点，features 不能为空",
+                    ep.operation
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_features_literal_is_valid_json_of_booleans() {
-        for ep in all_endpoints() {
+        for ep in all_endpoints()
+            .into_iter()
+            .filter(|e| !e.features.is_empty())
+        {
             let v: serde_json::Value = serde_json::from_str(ep.features)
                 .unwrap_or_else(|e| panic!("{} 的 features 不是合法 JSON：{e}", ep.operation));
             let obj = v
@@ -366,9 +460,13 @@ mod tests {
             forbidden.push(ep.query_id.to_string());
             forbidden.push(format!("{}/{}", ep.query_id, ep.operation));
             forbidden.push(format!("/{}", ep.operation));
-            let features: serde_json::Value = serde_json::from_str(ep.features).unwrap();
-            for key in features.as_object().unwrap().keys().take(3) {
-                forbidden.push(key.clone());
+            // 突变端点没有 features（见 mutations_carry_no_features_and_reads_carry_json_features）
+            if let Ok(features) = serde_json::from_str::<serde_json::Value>(ep.features) {
+                if let Some(obj) = features.as_object() {
+                    for key in obj.keys().take(3) {
+                        forbidden.push(key.clone());
+                    }
+                }
             }
         }
 

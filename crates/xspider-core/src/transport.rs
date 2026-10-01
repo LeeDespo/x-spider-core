@@ -67,6 +67,12 @@ impl HttpRequest {
         self
     }
 
+    /// 设置**原始**请求体（调用方自己管 Content-Type，如 form-urlencoded）。
+    pub fn raw_body(mut self, body: Vec<u8>) -> Self {
+        self.body = Some(body);
+        self
+    }
+
     /// 设置 JSON 请求体（同时补上 `Content-Type`，避免调用方忘掉）。
     pub fn json_body(mut self, body: &serde_json::Value) -> Self {
         self.body = Some(body.to_string().into_bytes());

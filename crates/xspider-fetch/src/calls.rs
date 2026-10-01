@@ -443,7 +443,10 @@ impl crate::FetchClient {
                     path: &prepared.path,
                     query: &prepared.query,
                     body,
+                    form: None,
                     with_credentials: true,
+                    // 取数端点全部在 x.com（v1.1 REST 只在社交那几条用 api.twitter.com）
+                    host: xspider_core::stack::API_HOST,
                 },
                 cancel,
             )

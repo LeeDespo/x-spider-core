@@ -46,8 +46,8 @@ void  xspider_free(char* ptr);                                // 释放返回的
 - 机器可读版：[`contract/xspider.schema.json`](contract/xspider.schema.json)
 - 变更记录：[`CHANGELOG.md`](CHANGELOG.md)
 
-当前共 **23 个 method**：`system.*`（2）、`auth.set_cookie`（1）、`net.*`（4，含 `net.probe_size`）、
-`fetch.*`（7 个端点）、`dl.*`（8）、`crawl.run`（1）。
+当前共 **26 个 method**：`system.*`（2）、`auth.*`（2）、`net.*`（4，含 `net.probe_size`）、
+`fetch.*`（9：7 个读端点 + `fetch.is_following` + 写操作 `fetch.mutate`）、`dl.*`（8）、`crawl.run`（1）。
 
 ## 快速开始
 

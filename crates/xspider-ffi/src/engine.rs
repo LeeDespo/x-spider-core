@@ -27,6 +27,7 @@ pub const METHODS: &[&str] = &[
     "system.version",
     "system.methods",
     "auth.set_cookie",
+    "auth.whoami",
     "net.set_limits",
     "net.set_proxy",
     "net.status",
@@ -38,6 +39,8 @@ pub const METHODS: &[&str] = &[
     "fetch.search_timeline",
     "fetch.home_timeline",
     "fetch.following",
+    "fetch.is_following",
+    "fetch.mutate",
     "dl.enqueue",
     "dl.pause",
     "dl.resume",
@@ -203,6 +206,27 @@ impl Engine {
             })),
             "system.methods" => Ok(serde_json::json!({ "methods": METHODS })),
             "auth.set_cookie" => self.set_cookie(params),
+            // 我是谁：外壳用它做登录校验与"当前账号"展示（原来是抓首页 HTML 自己正则）
+            "auth.whoami" => {
+                let account = self.fetch.whoami(cancel).await?;
+                Ok(serde_json::json!({ "account": account }))
+            }
+            // 关注态：**这是每张推文卡都会问一次的**（关注按钮），所以组件缓存了"我是谁"
+            "fetch.is_following" => {
+                let screen_name = required_str(params, "screen_name")?;
+                let following = self.fetch.is_following(&screen_name, cancel).await?;
+                Ok(serde_json::json!({ "following": following }))
+            }
+            // 写操作：动的是用户的真实账号，所以参数校验在最前面（缺字段不发请求）
+            "fetch.mutate" => {
+                let action = required_str(params, "action")?;
+                let tweet_id = optional_str(params, "tweet_id")?;
+                let screen_name = optional_str(params, "screen_name")?;
+                self.fetch
+                    .mutate(&action, tweet_id.as_deref(), screen_name.as_deref(), cancel)
+                    .await?;
+                Ok(serde_json::json!({ "ok": true }))
+            }
             "net.set_limits" => self.set_limits(params),
             "net.set_proxy" => self.set_proxy(params),
             "net.status" => Ok(serde_json::to_value(self.stack.status()).unwrap_or(Value::Null)),
@@ -448,6 +472,8 @@ impl Engine {
         let csrf = optional_str(params, "csrf")?;
         let creds = Credentials::from_cookie(cookie, csrf)?;
         self.stack.set_credentials(Some(creds));
+        // 换账号之后"我是谁"就变了：不清缓存的话，关注态查询会拿旧账号的身份去问
+        self.fetch.invalidate_account_cache();
         // 只回 ok：凭据**只进不出**，不回显、不确认内容
         Ok(serde_json::json!({ "ok": true }))
     }

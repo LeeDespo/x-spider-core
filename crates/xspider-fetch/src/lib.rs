@@ -33,6 +33,7 @@ mod endpoints;
 mod post;
 mod search;
 pub mod search_query_id;
+pub mod social;
 mod timeline;
 mod tweet_detail;
 mod user;
@@ -43,6 +44,7 @@ pub use calls::{
 };
 pub use post::{parse_post, Media, MediaKind, MediaVariant, Post, PostAuthor};
 pub use search_query_id::{extract_query_id, SearchQueryIdProvider};
+pub use social::{Account, TweetAction};
 pub use tweet_detail::TweetDetail;
 pub use user::{
     normalize_screen_name, parse_user, parse_user_in_result, FetchClient, User,

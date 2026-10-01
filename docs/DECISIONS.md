@@ -454,3 +454,22 @@
 - **代价**：契约多一个字段；外壳侧要记得用 `poster_url` 而不是 `url` 做封面。
 - **何时该推翻**：不推翻。**回归测试**在 `ComponentLiveTests.testVideoMediaHasAPosterAndAPlayableURL`
   （断言封面不是 mp4、能被解码成图片、且与播放地址不同）。
+
+## ADR-040 `auth.whoami` / `fetch.is_following` / `fetch.mutate`：把外壳最后一块 HTTP 层收进来
+- **背景**：接上取数与下载之后，`x-spider-mac` 里**还有三条路在自己发请求**：
+  账户探测（抓 x.com 首页正则取 screen_name）、关注态（v1.1 `friendships/show`）、
+  点赞/转推/书签/关注（6 个 GraphQL 突变 + v1.1 form POST）。
+  它们拦着 `NetworkClient` / `XClientTransaction` / `RequestGate` 三个文件删不掉——
+  而这三个文件正是"每个外壳都会各自重写一遍"的那种代码。
+- **选项**：A 留一部分在外壳（比如只搬突变） / B 三块全搬，外壳彻底没有 HTTP 层
+- **决定**：**B**。新增三个 method：
+  `auth.whoami {}`、`fetch.is_following {screen_name}`、`fetch.mutate {action, tweet_id?/screen_name?}`。
+- **理由**：搬一半等于"两个地方都能发请求"，限流/签名/错误分类会各写一套——
+  这正是本仓库存在的理由（`docs/01` §1）。另外两处**形状差异**只有搬进来才不会写错：
+  突变是"POST + variables 在 query、不带 features"（与搜索的 JSON body 不是一回事），
+  关注/取关必须走 `api.twitter.com`（x.com 对 v1.1 friendships 返回 401）。
+- **代价**：契约多 3 个 method（26 个了）；组件里多了 `api.twitter.com` 这个主机与
+  form-urlencoded 这条路径；`fetch.is_following` 需要"我是谁"，组件因此缓存了账号
+  （换 cookie 时清）。
+- **何时该推翻**：如果某个平台要求"写操作必须由外壳亲自发起"（例如平台侧审计），
+  那就把 `fetch.mutate` 降级成 `dl.plan` 那样的"产描述、由外壳执行"。

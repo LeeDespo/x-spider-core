@@ -83,7 +83,7 @@ fn dry_run_offline_plans_three_media_and_reports_json() {
         "得说清这是离线回放，别让人以为下了真东西"
     );
     assert_eq!(report["dry_run"], true);
-    assert_eq!(report["contract_version"], "1.2.0");
+    assert_eq!(report["contract_version"], "1.3.0");
 
     let plan = report["plan"].as_array().expect("plan 必须是数组");
     assert_eq!(plan.len(), 3, "fixture 那一页有 3 个媒体，--count 默认 3");

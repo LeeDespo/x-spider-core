@@ -50,12 +50,23 @@ pub struct ApiSpec<'a> {
     pub path: &'a str,
     /// 查询参数；**cursor 缺省时必须整个键省略**（`docs/02` §A1）。
     pub query: &'a [(String, String)],
-    /// POST 的 JSON body（搜索端点用）。
+    /// POST 的 JSON body（搜索端点用；`docs/02` §A2 要求它的形状与 GET 不同）。
     pub body: Option<serde_json::Value>,
+    /// `application/x-www-form-urlencoded` 的 body（v1.1 REST 用：关注/取关）。
+    ///
+    /// 与 `body` 互斥——两种 Content-Type 不能同时出现，谁非空就用谁。
+    pub form: Option<&'a [(String, String)]>,
     pub with_credentials: bool,
+    /// 目标主机。默认 [`API_HOST`]（x.com）；v1.1 的 friendships 系列必须走
+    /// `api.twitter.com`（x.com 域名对该端点 401，参考实现里带着实测注释）。
+    pub host: &'static str,
 }
 
-const API_HOST: &str = "https://x.com";
+/// 取数与页面抓取的主机。
+pub const API_HOST: &str = "https://x.com";
+
+/// v1.1 REST 的主机。**只有 friendships 系列用它**，GraphQL 一律走 [`API_HOST`]。
+pub const REST_V1_HOST: &str = "https://api.twitter.com";
 
 struct Inner {
     transport: RwLock<Transport>,
@@ -222,7 +233,9 @@ impl HttpStack {
                 path,
                 query,
                 body: None,
+                form: None,
                 with_credentials,
+                host: API_HOST,
             },
             cancel,
         )
@@ -245,7 +258,87 @@ impl HttpStack {
                     path,
                     query: &[],
                     body: Some(body.clone()),
+                    form: None,
                     with_credentials: true,
+                    host: API_HOST,
+                },
+                cancel,
+            )
+            .await?;
+        parse_json_body(endpoint, &resp)
+    }
+
+    /// **突变**：POST，`variables` 放在 **query string**、不带 body。
+    ///
+    /// 这是参考实现（`x-spider-mac` 的 `TwitterAPI.mutate`）的形状，**照抄**——
+    /// 搜索端点那种"POST + JSON body"是另一回事（`docs/02` §A2），
+    /// 两者混用会得到 404/400，而且原因很难猜。
+    pub async fn graphql_mutate(
+        &self,
+        endpoint: &'static str,
+        path: &str,
+        variables: &serde_json::Value,
+        cancel: &CancelToken,
+    ) -> XResult<Value> {
+        let vars = variables.to_string();
+        let resp = self
+            .request_raw(
+                endpoint,
+                HttpMethod::Post,
+                path,
+                &[("variables".to_string(), vars)],
+                true,
+                cancel,
+            )
+            .await?;
+        parse_json_body(endpoint, &resp)
+    }
+
+    /// v1.1 REST（`api.twitter.com`）的 GET。**关注态查询**用它。
+    pub async fn rest_v1_get(
+        &self,
+        endpoint: &'static str,
+        path: &str,
+        query: &[(String, String)],
+        cancel: &CancelToken,
+    ) -> XResult<Value> {
+        let resp = self
+            .send(
+                ApiSpec {
+                    endpoint,
+                    method: HttpMethod::Get,
+                    path,
+                    query,
+                    body: None,
+                    form: None,
+                    with_credentials: true,
+                    host: REST_V1_HOST,
+                },
+                cancel,
+            )
+            .await?;
+        parse_json_body(endpoint, &resp)
+    }
+
+    /// v1.1 REST 的 form-urlencoded POST。**关注 / 取关**用它。
+    pub async fn rest_v1_form_post(
+        &self,
+        endpoint: &'static str,
+        path: &str,
+        fields: &[(String, String)],
+        cancel: &CancelToken,
+    ) -> XResult<Value> {
+        let resp = self
+            .send(
+                ApiSpec {
+                    endpoint,
+                    method: HttpMethod::Post,
+                    path,
+                    query: &[],
+                    body: None,
+                    form: Some(fields),
+                    with_credentials: true,
+                    host: REST_V1_HOST,
                 },
                 cancel,
             )
@@ -263,7 +356,9 @@ impl HttpStack {
             path,
             query,
             body,
+            form,
             with_credentials,
+            host,
         } = spec;
         if with_credentials && !self.has_credentials() {
             // 没有凭据就不发请求：既省配额，也避免把 401 当成"端点坏了"去排查
@@ -273,7 +368,7 @@ impl HttpStack {
             );
         }
 
-        let url = build_url(path, query);
+        let url = build_url(host, path, query);
         let started = Instant::now();
         let mut backoff = INITIAL_BACKOFF;
         let mut attempt = 0u32;
@@ -306,6 +401,11 @@ impl HttpStack {
             }
             if let Some(body) = &body {
                 req = req.json_body(body);
+            } else if let Some(fields) = form {
+                // v1.1 REST：form-urlencoded（参考实现 formPost 的形状）
+                req = req
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .raw_body(encode_form(fields));
             }
 
             let outcome = cancel.race(self.transport().execute(&req)).await;
@@ -404,7 +504,7 @@ impl HttpStack {
         with_credentials: bool,
         cancel: &CancelToken,
     ) -> XResult<HttpResponse> {
-        let url = build_url(path, query);
+        let url = build_url(API_HOST, path, query);
         self.inner
             .gate
             .acquire_or_wait(RequestClass::Api, Some(endpoint), cancel)
@@ -664,8 +764,8 @@ impl HttpStack {
     }
 }
 
-fn build_url(path: &str, query: &[(String, String)]) -> String {
-    let mut url = format!("{API_HOST}{path}");
+fn build_url(host: &str, path: &str, query: &[(String, String)]) -> String {
+    let mut url = format!("{host}{path}");
     if !query.is_empty() {
         url.push('?');
         let encoded: Vec<String> = query
@@ -675,6 +775,19 @@ fn build_url(path: &str, query: &[(String, String)]) -> String {
         url.push_str(&encoded.join("&"));
     }
     url
+}
+
+/// `application/x-www-form-urlencoded` 的编码（v1.1 REST 的 body）。
+///
+/// 只转义真正需要转义的字符：与参考实现一致（它用 `urlQueryAllowed`，
+/// 连 `&` 与 `=` 都放过去——照抄，别顺手"修好"，X 认的是它现在这个形状）。
+fn encode_form(fields: &[(String, String)]) -> Vec<u8> {
+    fields
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&")
+        .into_bytes()
 }
 
 /// 头值里的十进制整数（`Content-Length` 之类）。
