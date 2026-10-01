@@ -54,6 +54,15 @@ pub struct Media {
     pub url: String,
     /// 扩展名（不含点），由 URL 推断。外壳拼文件名时会用到。
     pub ext: String,
+    /// **封面图**（X 的 `media_url_https`）：视频/动图在播放前显示的静帧，
+    /// 图片则是它本身（不带 `?name=`）。
+    ///
+    /// **它不是可下载的媒体文件**——视频的播放/下载地址在 [`Self::url`] 与
+    /// [`Self::variants`] 里。两者混淆的后果很具体：界面上把 mp4 当图片解码，
+    /// 视频格子整片空白（参考实现的 `TwitterMedia.url` 一直就是这个封面语义，
+    /// 抽取时漏了这个字段，直到真接进外壳才暴露）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poster_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -396,8 +405,10 @@ fn parse_media(value: &Value) -> Option<Media> {
     let id = str_field(value, "id_str")?;
     let variants = parse_variants(value);
 
+    // 封面：X 对**每一种**媒体都给 `media_url_https`（视频/动图给的是静帧）
+    let poster_url = str_field(value, "media_url_https");
     let url = match kind {
-        MediaKind::Photo => str_field(value, "media_url_https")?,
+        MediaKind::Photo => poster_url.clone()?,
         // 视频/动图取**过滤掉 HLS 后码率最高**的变体（docs/02 §C7）。
         // 动图同样是 mp4，X 只在 video_info 里给 mp4 变体，所以规则一致。
         MediaKind::Video | MediaKind::AnimatedGif => best_variant_url(&variants)?,
@@ -413,6 +424,7 @@ fn parse_media(value: &Value) -> Option<Media> {
         id,
         url,
         ext,
+        poster_url,
         width: value
             .get("original_info")
             .and_then(|o| o.get("width"))

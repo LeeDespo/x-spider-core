@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.1.0**（由 `xspider_version()` 返回）
+> 契约版本：**1.2.0**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.1.0"
+char* xspider_version(void);                            // "1.2.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.1.0","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.2.0","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,7 +96,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.1.0）
+### 3.1 已实现（1.2.0）
 
 | method | 请求 | 响应 |
 |---|---|---|

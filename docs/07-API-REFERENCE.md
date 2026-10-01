@@ -127,7 +127,8 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
   "lang": "en", "views": 4321, "favorite_count": 10, "retweet_count": 3, "reply_count": 1,
   "bookmark_count": 7, "quote_count": 2, "possibly_sensitive": false,
   "favorited": true, "retweeted": false, "bookmarked": true,   // 我的状态（按钮实心/空心）
-  "medias": [ { "kind": "video", "id": "…", "url": "https://video.twimg.com/….mp4",
+  "medias": [ { "kind": "video", "id": "…", "url": "https://video.twimg.com/….mp4",          // 可下载/可播放
+                "poster_url": "https://pbs.twimg.com/….jpg",      // 封面（界面拿它当图片）
                 "ext": "mp4", "width": 1920, "height": 1080, "duration_ms": 61500,
                 "aspect_ratio": [16,9], "variants": [ … ] } ],
   "author": { "id": "…", "screen_name": "…", "name": "…", "avatar": "https://…" },
@@ -135,7 +136,14 @@ ready {"port":49152,"token":"<随机>","version":"1.1.0","build":"0.1.0"}
   "retweeted_by": { … } }
 ```
 
-`media.url` 是**可直接下载的 URL**（图片不含 `?name=`；视频已选好最高码率、已过滤 HLS）。
+`media` 有**两个不同的 URL，别混**：
+
+- `poster_url` = **封面**（X 的 `media_url_https`）：视频/动图是播放前的静帧，图片则是它本身。
+  界面用它画格子、做封面——**把它当图片解码**。缺了它（早些版本没有这个字段）
+  就会拿 mp4 去当图片解码，视频格子整片空白（真实故障，见 ADR-039）；
+- `url` = **可直接下载的地址**：图片是 `media_url_https`（不含 `?name=`），
+  视频/动图已选好最高码率、并过滤掉 HLS。下载与播放用它，**不要拿它当封面**。
+
 需要缩略图/原图就自己拼 `?name=small` / `?name=orig`（`docs/02` §C6：`small` 是 680px）。
 
 ### 3.4 下载（`dl.*`）

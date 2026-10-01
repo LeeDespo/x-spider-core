@@ -222,6 +222,7 @@ fn sample_post() -> Post {
             id: "m1".into(),
             url: "https://video.twimg.com/redacted/demo.mp4".into(),
             ext: "mp4".into(),
+            poster_url: Some("https://pbs.twimg.com/redacted/demo.jpg".into()),
             width: Some(1920),
             height: Some(1080),
             duration_ms: Some(1000),
