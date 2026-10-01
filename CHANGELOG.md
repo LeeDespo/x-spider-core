@@ -9,6 +9,14 @@
 
 ## [未发布]
 
+### 文档
+- **`docs/07-API-REFERENCE.md` 重写为完整接口参考**：26 个契约 method 逐个给出
+  入参表（类型/必填/默认）、出参、示例与易错点；新增"数据形状"一节
+  （`post` / `media` / `page` / `reply` / `jobSnapshot` / `downloadEvent` / `candidate` 的逐字段说明）、
+  错误与重试纪律、四份可直接照抄的调用时序。
+- **新增 [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md)**：组件与 `x-spider-mac`
+  （tag `pre-component-integration`）的**逐项能力对照**，以及仍未覆盖 / 未接线的部分。
+
 ### 新增
 - **`xspider-cli`**（`bins/xspider-cli`）：M4 的"第一个真实消费方"。
   它**不依赖任何 `xspider-*` crate**（守卫测试强制读它自己的 `Cargo.toml`），
@@ -62,8 +70,9 @@
 - **`media_count` 在新结构里读 `core.tweet_counts.media_tweets`**（此前只读 `legacy`）。
 
 ### 计划中
-- `fetch.mutate`（点赞 / 转推 / 书签）：写操作的风险边界待确认。
 - `dl.plan` / `dl.report`：`host` 逃生舱（iOS 后台 `URLSession`、App Store 沙箱外壳）。
+- `post` 增加内嵌的 `quoted`（引用推文正文）：当前只有 `quoted_id`，
+  引用推文在界面上没有正文——见 [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) §5.1。
 - 下载队列的推送式事件流（当前是"带游标的增量轮询"，见 `docs/DECISIONS.md` ADR-029）。
 - `net.set_limits` 的 `cdn_concurrency` 目前只在队列创建时生效（信号量不能缩容）。
 

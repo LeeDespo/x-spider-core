@@ -142,7 +142,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 `dl.plan` / `dl.report`（`host` 逃生舱，给 iOS 后台 `URLSession` 一类平台强约束）。
 
-它们的形状见 `docs/01-ARCHITECTURE.md` §5。**写操作 `fetch.mutate` 已实现**（1.2.0）。
+它们的形状见 `docs/01-ARCHITECTURE.md` §5。**写操作 `fetch.mutate` 已实现**（1.3.0）。
 
 ---
 
@@ -257,7 +257,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - 关注态返回 `false` 与"没查到"是两件事：结构对不上时组件报 `parse`（那是"X 改版了"），
   而不是默默返回 `false`——后者会让界面显示错误的关注状态。
 
-### 4.6 `fetch.get_user`
+### 4.8 `fetch.get_user`
 
 ```json
 // 请求
@@ -279,7 +279,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - `screen_name` 为空 → `invalid_request`；
 - 用户不存在 → `not_found`（不是 `parse`，也不是空结果）。
 
-### 4.8 分页约定（`fetch.user_medias` / `fetch.user_tweets` / `fetch.search_timeline` / `fetch.home_timeline`）
+### 4.9 分页约定（`fetch.user_medias` / `fetch.user_tweets` / `fetch.search_timeline` / `fetch.home_timeline`）
 
 ```json
 // 请求：首页不要带 cursor —— **连这个键都不要出现**
@@ -302,7 +302,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - **同一个 `id` 在一页里只会出现一次**（组件的去重先于筛选），
   重复转推不会让同一条推文出现两次。
 
-### 4.9 `fetch.user_tweets` 的两个开关
+### 4.10 `fetch.user_tweets` 的两个开关
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
@@ -313,7 +313,7 @@ HTTP 状态只表达"传输层发生了什么"：
 那是**客户端筛选**的结果，**不是"到底"**。此时 `end` 仍为 `false` 且 `cursor` 仍会返回，
 调用方应当继续翻页（`docs/02` §D5：到底判据只看服务端原始条数）。
 
-### 4.10 `fetch.search_timeline` 的日期语义
+### 4.11 `fetch.search_timeline` 的日期语义
 
 - `since` / `until` 是 **`YYYY-MM-DD` 的日历日期**，按**用户本地日历**理解；
   组件**不做时区换算**（所以不存在"UTC 差一天"的坑）；
@@ -322,7 +322,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - `media_only` 默认 `true`：走服务端的媒体筛选，比取回来再筛**更省请求也更省配额**；
 - 非法日期（如 `2026-02-30`）会在**发请求之前**被拒（`invalid_request`）。
 
-### 4.11 `fetch.tweet_detail`
+### 4.12 `fetch.tweet_detail`
 
 ```json
 { "focal": { "id": "…", "full_text": "…" },
@@ -336,7 +336,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - 广告条目已被过滤，`focal` 不会出现在 `replies` 里；
 - 目前上游不返回详情的翻页游标，因此 `cursor` 通常不出现。
 
-### 4.12 下载任务（`dl.*`）
+### 4.13 下载任务（`dl.*`）
 
 ```json
 // 入队：job_id 由**外壳生成**，组件按它幂等
@@ -406,7 +406,7 @@ HTTP 状态只表达"传输层发生了什么"：
 **为什么不是流**：JSON-RPC 的请求/响应包络与 C ABI 都不支持流；用"带游标的增量"
 在三种形态下行为完全一致（进程内还能用 `subscribe()` 拿真流）。见 `docs/DECISIONS.md` ADR-029。
 
-### 4.13 爬取（`crawl.run`）
+### 4.14 爬取（`crawl.run`）
 
 ```json
 { "source": "medias", "user_id": "13298072",

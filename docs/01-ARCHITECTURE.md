@@ -52,17 +52,26 @@ xspider_free(char*)
 
 ```
 auth.set_cookie       {cookie, csrf?}                        -> {ok}
+auth.whoami           {}                                     -> {account}
 net.set_limits        {api_rps, api_burst, cdn_concurrency, cooldown_s} -> {ok}
+net.set_proxy         {url}                                  -> {ok}
 net.status            {}                                     -> {state, rate_limited_until?}
+net.probe_size        {url}                                  -> {size}
 fetch.get_user        {screen_name}                          -> {user}
 fetch.user_medias     {user_id, cursor?, count?}             -> {items[], cursor?, end:bool}
 fetch.user_tweets     {user_id, cursor?, count?, require_media?, include_retweets?} -> {items[], cursor?}
 fetch.tweet_detail    {id}                                   -> {focal, replies[], cursor?}
 fetch.search_timeline {screen_name, since, until, media_only?, cursor?} -> {items[], cursor?}
 fetch.home_timeline   {mode, cursor?}                        -> {items[], cursor?}
-fetch.following       {user_id, cursor?}                     -> {users[], cursor?}
-fetch.mutate          {action: "like|unlike|retweet|unretweet|bookmark|unbookmark", id} -> {ok}
+fetch.following       {user_id, cursor?, count?}             -> {items[], cursor?}
+fetch.is_following    {screen_name}                          -> {following}
+fetch.mutate          {action, tweet_id?, screen_name?}      -> {ok}
 ```
+
+（完整清单、字段类型与默认值见 [`07-API-REFERENCE.md`](07-API-REFERENCE.md)；
+`fetch.mutate` 的 `action` ∈ `favorite` / `unfavorite` / `retweet` / `unretweet` /
+`bookmark` / `unbookmark` / `follow` / `unfollow`——**推文类动作带 `tweet_id`，关注类带
+`screen_name`**，不是笼统的一个 `id`。）
 
 ### 三条硬性设计
 1. **给「单页 + 游标」，不给自动翻页的流**。翻页时机、过滤、去重是业务语义，
@@ -93,18 +102,22 @@ fetch.mutate          {action: "like|unlike|retweet|unretweet|bookmark|unbookmar
 **衔接方式：组件产出候选，外壳决定要不要下、叫什么名、放哪儿，再调下载组件入队。**
 
 ```
-crawl.start {
-  source: "medias" | "tweets",
-  user_id, since?, until?, media_types?, wanted_keys?,
-  limits: { page_size, page_throttle_ms, max_pages?, empty_page_limit?, stop_when_older_than? }
-} -> crawl_id
+crawl.run {
+  source: "medias" | "tweets", user_id, cursor?,
+  strategy: { since?, until?, media_types?, wanted_keys?,
+              limits: { page_size?, page_throttle_ms?, max_pages?,
+                        empty_page_limit?, stop_when_older_than? } }
+} -> { done_reason, candidates: [ { post_id, media_id, url, ext, size_hint,
+                                    created_at, screen_name, day } ],
+       pages, raw_items, dropped, next_cursor?, seq, events }
 
-crawl.events:
-  page   { raw_count, kept_count, cursor, oldest_at }
-  candidates [ { post_id, media_id, url, ext, size_hint, created_at, screen_name, day } ]   # 按页批量
-  done   { reason: exhausted | time_progressed | empty_pages | cursor_stuck
-                  | wanted_collected | page_limit_reached | cancelled | error }
+done_reason: exhausted | time_progressed | empty_pages | cursor_stuck
+           | wanted_collected | page_limit_reached | cancelled | error
 ```
+
+> 实现把 §4 的「按页批量给候选」落成了**一次调用返回整轮结果**（受 `max_pages` 约束）：
+> 长爬取由外壳用小页数反复调用、用返回的 `next_cursor` 续爬。这样进度对调用方可见，
+> 也不必把长任务塞进一次请求里（推送式事件流三种形态都不支持，见 ADR-029）。
 
 四个要点：
 1. **`done_reason` 必须显式**——"翻到服务端尽头"与"被策略提前终止"是两种语义，

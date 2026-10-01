@@ -19,7 +19,7 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 | 组件 | 职责 | 状态 |
 |---|---|---|
 | `crates/xspider-core` | 共享内核：HTTP 客户端、凭据注入、限流闸门与 429 熔断、请求签名、错误分类 —— **不对外发布** | ✅ |
-| `crates/xspider-fetch` | 取数：用户、媒体/推文时间线、推文详情、搜索、主页时间线、关注 | ✅ 7 个端点（`fetch.mutate` 待做） |
+| `crates/xspider-fetch` | 取数：用户、媒体/推文时间线、推文详情、搜索、主页时间线、关注、关注态、写操作 | ✅ 7 个读端点 + `fetch.is_following` + `fetch.mutate` |
 | `crates/xspider-download` | 爬取调度 + 下载：翻页、筛选、队列、并发、断点续传、完整性校验 | ✅ 两个后端 + 队列 + 爬取调度 |
 | `crates/xspider-ffi` | C ABI（三个函数）+ method 派发 | ✅ |
 | `bins/xspiderd` | sidecar：本地 JSON-RPC | ✅ |
@@ -33,7 +33,7 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 只有三个 C ABI 函数，所有能力都走一个入口：
 
 ```c
-char* xspider_version(void);                                  // 契约版本握手，如 "1.0.0"
+char* xspider_version(void);                                  // 契约版本握手，如 "1.3.0"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放返回的字符串
 ```
@@ -93,7 +93,7 @@ XSPIDER_ARIA2_PATH=/path/to/aria2next ./script/package.sh   # 顺带带上 Aria2
 手动起 sidecar：
 
 ```bash
-cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.0.0"}
+cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.3.0"}
 
 # 另开一个终端，用上面读到的 port 与 token
 curl -s http://127.0.0.1:$PORT/ -H "X-XSpider-Token: $TOKEN" -H 'Content-Type: application/json' \
@@ -114,7 +114,8 @@ cargo run -p xspiderd -- --port 0
 | 文件 | 内容 |
 |---|---|
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | 对外契约：method 表、字段、错误码、版本策略 |
-| [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口清单与调用方式**（照这份就能写外壳） |
+| [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、调用时序 |
+| [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力对照**：组件 ↔ `x-spider-mac` 的逐项映射、分工与缺口 |
 | [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册（给具体某个外壳）：改动清单、实测记录 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 决策台账（ADR）：每条决定及其「何时该被推翻」 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 里程碑、实际进度、风险台账 |

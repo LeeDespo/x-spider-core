@@ -95,7 +95,7 @@ canary 全绿：8 项
 | search queryId 自愈（锚定 operationName） | `crates/xspider-fetch/src/search_query_id.rs` |
 | 分页原语（cursor 推进 / 到底 / 去重） | `crates/xspider-core/src/paging.rs` |
 | 11 条真实 fixture + 脱敏脚本 | `fixtures/`、`script/redact_fixtures.py` |
-| 契约与 schema | `docs/CONTRACT.md` §4.6–4.9、`contract/xspider.schema.json` |
+| 契约与 schema | `docs/CONTRACT.md` §4.8–4.12、`contract/xspider.schema.json` |
 
 ### 本轮最重要的三个发现（都来自真实 fixture，不是推断）
 
@@ -119,11 +119,12 @@ canary 全绿：8 项
       **空页（到底）**、**429**、**字段改名**三类。前两类可以安全地造
       （空页：翻到最后一页；429：不主动触发，等它自然出现或由本地 server 模拟）；
       第三类只能等 X 真的改版时由 canary 自动落盘。
-- [ ] `fetch.mutate`（点赞/转推/书签）——`docs/01` §3 已登记，属 M1 范围但需要先确认写操作的风险边界。
+- [x] `fetch.mutate`（点赞/转推/书签/关注，8 种 action）——**1.3.0 已实现**，
+      成败看返回体（`errors[]`）而不只看状态码，见踩坑记录 38。
 - [ ] 把 `x-rate-limit-*` 响应头接进限流状态（**主动**限流，而不只等 429）。
       fixture 里已留档（`normal.json` 的 headers）。
 - [ ] 日期筛选的更多边界：跨月/跨年、单日区间已有测试；
-      但"用户本地时区"这一层目前由外壳给定日历日期来保证（ADR 见 `CONTRACT.md` §4.8）。
+      但"用户本地时区"这一层目前由外壳给定日历日期来保证（ADR 见 `CONTRACT.md` §4.11）。
 
 **M1 已知风险**：
 
@@ -165,12 +166,13 @@ aria2 外派后端、完整性校验。
 
 ### M2 剩余工作
 
-- [ ] **下载队列与状态机**：并发上限、`job_id` 幂等、暂停/恢复/取消、重启对账；
-- [ ] **事件上报**：`progress | completed | integrity_failed | skipped | failed{reason}`；
-- [ ] **下载记录**：由组件写、格式带版本字段（`docs/01` §5.1：两个写者必然出现静默不一致）；
-- [ ] **引擎选择策略**：按大小/可用性在 `http` 与 `aria2` 之间选（留在组件内部，不进契约）；
-- [ ] **爬取调度**：候选清单 + 策略参数 + `done_reason`（`docs/01` §4）;
-- [ ] **`host` 逃生舱**：`dl.plan` + `dl.report`。
+- [x] **下载队列与状态机**：并发上限、`job_id` 幂等、暂停/恢复/取消、重启对账；
+- [x] **事件上报**：`progress | completed | failed{reason} | skipped`
+      （不单列 `integrity_failed`：它由 `completed.integrity` 与 `failed.reason` 表达）；
+- [x] **下载记录**：由组件写、格式带版本字段（`docs/01` §5.1：两个写者必然出现静默不一致）；
+- [x] **引擎选择策略**：按大小/可用性在 `http` 与 `aria2` 之间选（留在组件内部，不进契约）；
+- [x] **爬取调度**：候选清单 + 策略参数 + `done_reason`（`docs/01` §4）;
+- [ ] **`host` 逃生舱**：`dl.plan` + `dl.report`（契约已登记形状，**未实现**）。
 
 **M2 风险**：
 
@@ -238,9 +240,19 @@ aria2 外派后端、完整性校验。
 **接入路径**（不变）：按 ADR-005，先走「外壳提供 aria2 路径」；
 按 ADR-002，外壳切换形态只需换传输（HTTP ↔ cdylib），契约载荷不变。
 
-**M4 留下的未决**（都记在 `docs/06` §5）：`system.version` 是否加 `transport` 字段；
-参考实现的"魔数/HTML 误页"完整性判定要不要搬进组件；
-`net.set_limits` 的并发上限仍是启动时值。
+**M4 留下的未决**：`system.version` 加 `transport` 字段 → **已做**（1.3.0）；
+参考实现的"魔数/HTML 误页"完整性判定要不要搬进组件 → **已定：不搬**（`docs/06` §5.4）；
+`net.set_limits` 的并发上限仍是启动时值 → **仍未做**。
+
+**接入后审计发现的缺口**（2026-10-01，逐项对照 `x-spider-mac` 的 `pre-component-integration`；
+完整对照表见 [`08-CAPABILITY-MAP.md`](08-CAPABILITY-MAP.md)）：
+
+| 缺口 | 归属 | 影响 |
+|---|---|---|
+| `post` 没有内嵌的 `quoted`（只有 `quoted_id`） | **组件**（要改契约，1.4.0） | 引用推文在界面上没有正文 |
+| 外壳的"继续"与"重试"重新入队，而非 `dl.resume` | **外壳** | 暂停后恢复、失败后重试**都没有真正发生**（界面显示"下载中"，进度不动） |
+| 外壳启动时不与 `dl.list()` 对账 | **外壳** | 只有恢复任务的那次启动，两边状态可能不一致 |
+| `crawl.run` 未被外壳使用 | 外壳（可选） | 不是缺口，只是接线后能删掉外壳里那套终止判据 |
 
 ---
 

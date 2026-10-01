@@ -641,7 +641,7 @@ fn optional_bool(params: &serde_json::Map<String, Value>, key: &str) -> XResult<
 /// - `dl.enqueue.expect_size`：schema 写的是 `minimum: 0`，空文件是合法期望；
 /// - `count`（每页条数）：0 说不通——那个用 [`optional_positive_u64`]。
 ///
-/// 这条区分是被消费者抓出来的：CLI 按 `docs/CONTRACT.md` §4.11 传了 `since: 0`，
+/// 这条区分是被消费者抓出来的：CLI 按 `docs/CONTRACT.md` §4.13 传了 `since: 0`，
 /// 组件回 `invalid_request: since 必须是正整数`——**契约与实现不一致**，
 /// 而文档是那个写对了的（`docs/06-CONSUMER-INTEGRATION.md` 记录了这次发现）。
 fn optional_u64(params: &serde_json::Map<String, Value>, key: &str) -> XResult<Option<u64>> {
@@ -911,7 +911,7 @@ mod tests {
 
     /// 新端点：先把"参数校验"钉住（离线可测），网络行为由 replay_offline 覆盖。
     /// 0 是不是合法值**按字段区分**——这条区分是消费者抓出来的：
-    /// CLI 按 `docs/CONTRACT.md` §4.11 传 `since: 0`（契约原话"从 0 开始"），
+    /// CLI 按 `docs/CONTRACT.md` §4.13 传 `since: 0`（契约原话"从 0 开始"），
     /// 而被一刀切的正整数校验挡回来了。契约与实现不一致时，错的是实现。
     #[test]
     fn zero_is_legal_where_the_contract_says_so() {

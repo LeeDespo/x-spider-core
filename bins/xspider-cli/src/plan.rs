@@ -103,7 +103,7 @@ pub fn plan_from_page(
             let ext = media.get("ext").and_then(Value::as_str).unwrap_or("bin");
             let media_index = index + 1;
             // `job_id` 由**外壳**生成：它要能跨进程重启稳定，所以用稳定的业务 id
-            // 而不是序号（序号会随筛选条件变化）——见 docs/CONTRACT.md §4.11
+            // 而不是序号（序号会随筛选条件变化）——见 docs/CONTRACT.md §4.13
             let job_id = format!("{post_id}-{media_id}");
             let file_name = sanitize(&post_time)
                 + " "

@@ -133,9 +133,9 @@ CLI 于是**在下载已经跑起来之后**才失败（前 3 个任务已入队
 按 `docs/CONTRACT.md` §3.2 它是 **sidecar 传输层 method**（cdylib 没有"关掉宿主进程"这回事），
 所以不出现在能力清单里。这是**有意的**，但代价是：只读 schema 的外壳不知道它存在。
 
-**提案（未做，留给你定）**：给 `system.version` 的结果加一个 `transport` 字段
-（`"sidecar" | "cdylib"`）。这样外壳不必"因为我是我"而硬编码能力差异。
-现在没做，因为动 `Engine` 要传一个传输标签，收益暂时不够——记在这里以免下次又有人重新发现一遍。
+**提案（已做，1.3.0）**：`system.version` 的结果里加了 `transport`
+（`"sidecar" | "cdylib"`）。这样外壳不必"因为我是我"而硬编码能力差异，而是问一句
+"我是不是 sidecar"；`system.shutdown` 仍然只属于传输层、不进能力清单。
 
 ### 4.3 `dl.events` 的事件形状在 schema 里没有约束
 
@@ -145,7 +145,7 @@ CLI 是照着散文写的，写对了，但机器可读的那份契约在这里�
 
 **修法（本轮已做）**：schema 增加 `$defs/downloadEvent`（`oneOf` 四种，各自
 `additionalProperties: false`），并由契约守卫测试盯着"事件字段与 schema 一致"。
-`CONTRACT.md` §4.11 也补上 `kind` 这个判别字段。
+`CONTRACT.md` §4.13 也补上 `kind` 这个判别字段。
 
 ### 4.4 探测失败不能当致命错误（CLI 自己先写错过）
 
@@ -167,9 +167,13 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
 
 ## 5. 未决与建议
 
+> **接口细节与调用时序以 [`07-API-REFERENCE.md`](07-API-REFERENCE.md) 为准；
+> 组件与参考实现的能力对照以 [`08-CAPABILITY-MAP.md`](08-CAPABILITY-MAP.md) 为准。**
+> 这一节只留**还没定的产品决定**。
+
 1. **`net.probe_size` 与自动探测的默认值**（ADR-032/033）：组件默认在下载前探一次大小
    （每个未知大小的媒体多一次 CDN 请求），参考实现刻意不探。`XSPIDER_PROBE_SIZE=0` 可关。
-2. **`system.version` 加 `transport` 字段**：见 §4.2，等你的决定。
+2. ~~`system.version` 加 `transport` 字段~~ → **已做**（1.3.0）。
 3. **双写记录**：参考实现的 `.downloaded.json` 与组件的 `downloads.json` 是两份。
    分工是清楚的（组件写它的、外壳写它的），但接入时要明确"谁负责在重启后对账"。
 4. ~~魔数/HTML 误页判定搬进组件~~ → **已决定：不搬**（2026-10-01）。
@@ -181,6 +185,18 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
    参考实现原本就是两条都做（`FileIntegrity.verify` 在 `finalizeDownload` 里），
    接入后这个位置不变，只是它前面的字节数校验改由组件负责。
 5. **`net.set_limits` 的并发上限**只在队列创建时生效（信号量不能缩容）。若外壳要"运行中调并发"，需要再改。
+
+### 5.1 审计出来的两处，都在**外壳**侧（组件不用改）
+
+- **暂停/恢复与失败重试没有接线**：外壳的"继续"与"重试"走的是"重新 `dl.enqueue`
+  （同一个 `job_id`）"，而组件对已存在的 `job_id` 返回 `already_known` 且**不会重启任务**
+  （幂等是刻意的）。症状是界面显示"下载中"、进度永远不动。
+  修法：改调 **`dl.resume`**（对 `paused` 与 `error` 都有效，只拒绝 `complete`）。
+- **重启后不与组件对账**：启动时把在飞任务一律标成 `paused`，而事件轮询只在"有新任务入队"
+  时才启动，于是"只有恢复任务、没有新任务"的那次启动不会去问 `dl.list()`。
+  修法：启动时无条件跑一次对账。
+
+（完整的能力对照与其余缺口见 [`08-CAPABILITY-MAP.md`](08-CAPABILITY-MAP.md) §5。）
 
 ---
 
