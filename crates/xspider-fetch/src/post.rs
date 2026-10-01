@@ -565,7 +565,10 @@ mod tests {
         assert_eq!(post.views, Some(4321));
         assert_eq!(post.favorite_count, 10);
         assert_eq!(post.bookmark_count, Some(7));
-        assert!(post.favorited && post.retweeted && post.bookmarked, "三面旗要读出来（UI 的实心/空心靠它）");
+        assert!(
+            post.favorited && post.retweeted && post.bookmarked,
+            "三面旗要读出来（UI 的实心/空心靠它）"
+        );
         assert_eq!(post.tags, vec!["rust", "x"]);
         assert_eq!(post.author.screen_name, "demo_user");
         assert_eq!(post.author.id, "42");

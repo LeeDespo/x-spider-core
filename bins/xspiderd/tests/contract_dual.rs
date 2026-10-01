@@ -370,7 +370,10 @@ fn contract_dual_end_to_end() {
         // 写成显式的例外而不是"跳过这个用例"：例外一旦能被静默添加，
         // 这个测试就慢慢变成了摆设。
         let (a, b) = if case.method == "system.version" {
-            (without_transport(library[i].clone()), without_transport(sidecar[i].clone()))
+            (
+                without_transport(library[i].clone()),
+                without_transport(sidecar[i].clone()),
+            )
         } else {
             (library[i].clone(), sidecar[i].clone())
         };
