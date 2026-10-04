@@ -49,6 +49,20 @@ void  xspider_free(char* ptr);                                // 释放返回的
 当前共 **26 个 method**：`system.*`（2）、`auth.*`（2）、`net.*`（4，含 `net.probe_size`）、
 `fetch.*`（9：7 个读端点 + `fetch.is_following` + 写操作 `fetch.mutate`）、`dl.*`（8）、`crawl.run`（1）。
 
+逐 method 的**作用与读写属性**见 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md)，
+每行链到 [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) 的详细小节。
+
+## 前提
+
+- **Rust 工具链**：用 [rustup](https://rustup.rs) 安装。本仓库用 `rust-toolchain.toml` 锁定工具链，
+  但 **Homebrew 装的 `cargo` 是真实二进制、不读该文件**；若它排在 PATH 前面，锁定会被静默忽略——
+  请确保 rustup 的 `~/.cargo/bin` 排在前面（或直接用 `~/.cargo/bin/cargo`）：
+  `export PATH="$HOME/.cargo/bin:$PATH"`。
+- **macOS**：需要 Command Line Tools 提供的 `cc`（冒烟脚本会编译 `script/cdylib_check.c`）：
+  运行 `xcode-select --install`。
+- **python3**：`script/smoke.sh` 与 fixture 脱敏脚本用到（系统自带即可）。
+- 依赖已缓存在本机时可用 `--offline`（更快也更稳）；首次或改过依赖需先联网 `cargo fetch`。
+
 ## 快速开始
 
 ```bash
@@ -114,6 +128,7 @@ cargo run -p xspiderd -- --port 0
 | 文件 | 内容 |
 |---|---|
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | 对外契约：method 表、字段、错误码、版本策略 |
+| [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) | **接口清单**：26 个 method 的作用、只读/写属性，逐行链到接口参考 |
 | [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、调用时序 |
 | [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力对照**：组件 ↔ `x-spider-mac` 的逐项映射、分工与缺口 |
 | [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册（给具体某个外壳）：改动清单、实测记录 |

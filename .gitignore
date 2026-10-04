@@ -1,6 +1,9 @@
 # --- 生成物（不提交）---
 /target/
 /dist/
+# CLI 的默认落盘目录：bins/xspider-cli 默认写这里，README 与接入手册的 live 示例
+# 就是在仓库根目录跑它，跑完会留下一堆媒体文件
+/downloads/
 **/*.rs.bk
 *.pdb
 
@@ -12,6 +15,8 @@
 # --- 凭据（绝不入库，也绝不落盘；这里只是双保险）---
 .env
 .env.*
+# 但环境变量模板（占位符，非真实凭据）应当能入库
+!.env.example
 *.cookie
 cookie.txt
 
@@ -38,6 +43,11 @@ cookie.txt
 .DS_Store
 .idea/
 .vscode/
+# 补丁 / 合并残留与编辑器备份
+*.orig
+*.rej
+*.tmp
+*.bak
 
 # Python 字节码缓存（脱敏脚本跑过就会生成）
 __pycache__/

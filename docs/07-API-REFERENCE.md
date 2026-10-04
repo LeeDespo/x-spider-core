@@ -880,4 +880,4 @@ crawl.run { source: "medias", user_id, strategy: { since, until, limits: { max_p
 | **`dl.plan` / `dl.report` 尚未实现** | `host` 逃生舱（iOS 后台 `URLSession` 一类平台强约束），已登记形状，调用会得到 `invalid_request` |
 | **只有 Aria2Next，不支持上游 aria2** | 选项集与行为不同，见 [`NOTICE`](../NOTICE) |
 | **`crawl.run` 的事件形状未逐字段约束** | schema 里 `events` 是通用对象数组；`dl.events` 的事件是逐字段约束的 |
-| **完整性只管"字节对不对"** | "这个文件真的是图片/mp4 吗"（魔数、HTML 误页）由外壳负责——分工见 `docs/06` §5.4 |
+| **完整性只管"字节对不对"** | "这个文件真的是图片/mp4 吗"（魔数、HTML 误页）由外壳负责——分工见 `docs/06` §5 第 4 条 |

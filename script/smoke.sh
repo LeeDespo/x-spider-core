@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# M0 冒烟：一条命令验证「双形态 + 垂直切片」（docs/00-KICKOFF.md §4 的第 5 项）。
+# 冒烟：一条命令验证「双形态 + 垂直切片」
+# （构建 → cdylib dlopen → sidecar 握手/调用/关停 → CLI 只经契约跑一遍）。
 #
 #   ./script/smoke.sh              # 默认离线：用 fixtures 回放，不碰网络
 #   XSPIDER_LIVE=1 ./script/smoke.sh   # 打真 X（需要 XSPIDER_COOKIE，可选 XSPIDER_PROXY）
@@ -30,7 +31,7 @@ else
 fi
 
 # 注意：macOS 自带 bash 3.2，在 `set -u` 下展开**空数组**会报 unbound variable。
-# 所以这里不用数组拼参数，直接用函数分支（踩过一次，见 AGENTS.md 踩坑记录）。
+# 所以这里不用数组拼参数，直接用函数分支。
 build_pkg() {
   local pkg="$1"
   if [ "$PROFILE" = "release" ]; then

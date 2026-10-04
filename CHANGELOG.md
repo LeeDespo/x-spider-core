@@ -87,10 +87,14 @@
 - **头像归一化**：`//` → `https://`、`_normal` → `_bigger`，与参考实现给外壳的值一致。
 - **`media_count` 在新结构里读 `core.tweet_counts.media_tweets`**（此前只读 `legacy`）。
 
+### 变更
+- **CI 收敛为 macOS 单平台**：`fmt + clippy -D warnings + test`、cdylib 的 `dlopen` 验证与
+  冒烟脚本现在都只跑 **macOS** 一格；Linux / Windows 的 job 已删除——它们没有真实消费方，
+  跑出来的绿是**假的覆盖率**，比没有更坏（ADR-038）。跨端由"不引入平台专有依赖"的
+  代码级纪律（不用 native-tls、不用 Apple 专有框架、路径不假设 POSIX）保证，仍由 clippy 与测试守着。
+
 ### 计划中
 - `dl.plan` / `dl.report`：`host` 逃生舱（iOS 后台 `URLSession`、App Store 沙箱外壳）。
-- `post` 增加内嵌的 `quoted`（引用推文正文）：当前只有 `quoted_id`，
-  引用推文在界面上没有正文——见 [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) §5.1。
 - 下载队列的推送式事件流（当前是"带游标的增量轮询"，见 `docs/DECISIONS.md` ADR-029）。
 - `net.set_limits` 的 `cdn_concurrency` 目前只在队列创建时生效（信号量不能缩容）。
 
@@ -128,7 +132,8 @@
 - 脚本：`script/smoke.sh`（一条命令验证双形态 + 端到端 + 无残留进程）、
   `script/redact_fixtures.py`（**自带四条事后断言**）、`script/package.sh`、
   `script/cdylib_check.c`。
-- CI：三平台 `fmt + clippy -D warnings + test`，macOS/Linux 额外做 cdylib 的 dlopen 验证。
+- CI：`fmt + clippy -D warnings + test` + cdylib 的 dlopen 验证。**初版按三平台规划且从未实跑**；
+  现已收敛为 **macOS 单平台**（见 ADR-038 与上文 [未发布] 的「变更」）。
 
 ### 安全 / 隐私
 - 凭据只进不出：不落盘、不打日志、不回传；`Debug` 被手工脱敏。
