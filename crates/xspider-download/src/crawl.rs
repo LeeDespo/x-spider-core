@@ -33,7 +33,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use xspider_core::cancel::CancelToken;
-use xspider_core::error::{XError, XResult};
+use xspider_core::error::XResult;
 use xspider_core::paging::{classify_cursor, CursorOutcome, Page, SeenIds};
 
 pub use crate::DoneReason;
@@ -248,9 +248,12 @@ pub async fn crawl(
             }
         }
 
+        // 取页失败只加「第 N 页」这层上下文，**保留原 XError 的 code 与结构化字段**：
+        // 把 unauthorized / rate_limited / not_found / parse / invalid_request 一律吞成
+        // internal，会让外壳无法区分「重新登录 / 退避 / 参数写错 / 组件 bug」（engine.rs 直接透出这个错误）。
         let page = source(cursor.clone())
             .await
-            .map_err(|e| XError::internal(format!("取页失败（第 {} 页）：{e}", pages + 1)))?;
+            .map_err(|e| e.with_message_prefix(format!("取页失败（第 {} 页）：", pages + 1)))?;
 
         pages += 1;
         raw_items += page.items.len() as u64;
@@ -464,6 +467,7 @@ fn date_of(rfc3339: &str) -> String {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use xspider_core::error::XError;
 
     /// 脚本化的假服务端：按顺序吐出准备好的页。
     ///
@@ -885,6 +889,104 @@ mod tests {
         );
         assert_eq!(outcome.pages, 2, "上限是辅助判据，先挡住失控");
         assert_eq!(outcome.candidates.len(), 2);
+    }
+
+    /// 取页错误**只加「第 N 页」上下文，保留原 code 与结构化字段**。
+    ///
+    /// 反面：修之前一律 `XError::internal`，外壳拿到的永远是 internal，
+    /// 无法区分「重新登录 / 退避 / 报参数错 / 报组件 bug」。
+    #[tokio::test]
+    async fn page_fetch_failure_keeps_the_original_code() {
+        use xspider_core::error::ErrorCode;
+        let cases: Vec<(XError, ErrorCode)> = vec![
+            (XError::unauthorized("凭据失效"), ErrorCode::Unauthorized),
+            (XError::not_found("没有这个用户"), ErrorCode::NotFound),
+            (
+                XError::invalid_request("source 必须是 \"medias\" 或 \"tweets\""),
+                ErrorCode::InvalidRequest,
+            ),
+            (XError::parse("entries[0]", "缺少字段"), ErrorCode::Parse),
+            (XError::upstream(503, "boom"), ErrorCode::Upstream),
+            (
+                XError::transport("timeout", "10s 未响应"),
+                ErrorCode::Transport,
+            ),
+        ];
+        for (err, code) in cases {
+            let source: PageSource =
+                Arc::new(move |_cursor| Box::pin(std::future::ready(Err(err.clone()))));
+            let got = crawl(&strategy(), source, &CancelToken::new(), |_| {})
+                .await
+                .expect_err("取页失败必须冒出来");
+            assert_eq!(
+                got.code(),
+                code,
+                "取页错误的 code 不许被吞成 internal：{got:?}"
+            );
+            let obj = got.to_object();
+            assert!(
+                obj.message.contains("第 1 页"),
+                "人读 message 应带页号：{}",
+                obj.message
+            );
+        }
+    }
+
+    /// 正式循环里 source 冒出来的 `invalid_request`（engine 的 `source:"nope"` 走这条）
+    /// 必须带着 `invalid_request` 码流出，而不是 internal——这条钉住"没只改一半"。
+    #[tokio::test]
+    async fn invalid_request_from_the_source_survives_the_page_wrapper() {
+        use xspider_core::error::ErrorCode;
+        let source: PageSource = Arc::new(move |_cursor| {
+            Box::pin(std::future::ready(Err(XError::invalid_request(
+                "source 必须是 \"medias\" 或 \"tweets\"，收到 \"nope\"",
+            ))))
+        });
+        let got = crawl(&strategy(), source, &CancelToken::new(), |_| {})
+            .await
+            .unwrap_err();
+        let obj = got.to_object();
+        assert_eq!(obj.code, ErrorCode::InvalidRequest);
+        assert!(obj.message.contains("第 1 页"), "{}", obj.message);
+        assert!(
+            obj.message.contains("source"),
+            "原 message 也要保留：{}",
+            obj.message
+        );
+    }
+
+    /// 第 N 页失败要报 N；`RateLimited` 没有 message 字段，前缀无处放，
+    /// 但 `retry_after_s` / `endpoint` 必须逐字段保留（外壳靠它们退避）。
+    #[tokio::test]
+    async fn page_fetch_failure_on_a_later_page_keeps_rate_limit_details() {
+        use xspider_core::error::ErrorCode;
+        let calls = Arc::new(Mutex::new(0u32));
+        let calls_clone = calls.clone();
+        let source: PageSource = Arc::new(move |_cursor| {
+            let calls = calls_clone.clone();
+            Box::pin(async move {
+                let mut n = calls.lock().unwrap();
+                *n += 1;
+                if *n == 1 {
+                    Ok(Page::new(
+                        vec![post("1", Some("2026-09-30T10:00:00Z"), &["m1"])],
+                        Some("c1".into()),
+                    ))
+                } else {
+                    Err(XError::RateLimited {
+                        retry_after_s: 42,
+                        endpoint: Some("user_medias".into()),
+                    })
+                }
+            })
+        });
+        let got = crawl(&strategy(), source, &CancelToken::new(), |_| {})
+            .await
+            .unwrap_err();
+        let obj = got.to_object();
+        assert_eq!(obj.code, ErrorCode::RateLimited);
+        assert_eq!(obj.retry_after_s, Some(42), "退避时长不许丢");
+        assert_eq!(obj.endpoint.as_deref(), Some("user_medias"));
     }
 
     #[test]

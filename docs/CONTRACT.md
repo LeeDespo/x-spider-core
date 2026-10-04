@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.5.0**（由 `xspider_version()` 返回）
+> 契约版本：**1.5.1**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.5.0"
+char* xspider_version(void);                            // "1.5.1"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.5.0","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.5.1","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,7 +96,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.5.0）
+### 3.1 已实现（1.5.1）
 
 | method | 请求 | 响应 |
 |---|---|---|
@@ -378,8 +378,12 @@ HTTP 状态只表达"传输层发生了什么"：
 
 - **暂停 vs 取消**：暂停**保留**断点（`dl.resume` 会从断点继续）；
   取消**丢弃**断点并清掉临时文件（目标目录保持干净）；
-- **重启对账**：组件把任务记录写在 `state-dir` 里（**带 `version` 字段**），
-  重启后未完成的任务会自动重新排队续传；外壳用 `dl.list()` 与自己的记录对账；
+- **`state-dir` 就是下载记录所在目录**：sidecar 的 `--state-dir` 与
+  `XSPIDER_STATE_DIR` 都决定它（**flag 优先**），记录**带 `version` 字段**，
+  版本对不上就不猜旧格式、当作没有记录；
+- **重启对账**：外壳用 `dl.list()` 与自己的记录对账。
+  ⚠️ **已知缺口**：当前只有**已完成**的任务才落记录，未完成 / 暂停 / 失败的断点
+  尚未持久化——"重启后续传未完成任务"这条**还没有接线**（见 `docs/ROADMAP.md` 风险台账）；
 - **记录是组件写的**（它是完成事件的产生者）——两个写者必然出现
   "文件下好了但记录没写"的静默不一致。
 
@@ -440,6 +444,15 @@ HTTP 状态只表达"传输层发生了什么"：
   见 `docs/02` §D3）；
 - 当前 `crawl.run` 是"跑到停为止再返回"（受 `max_pages` 约束）。
   长爬取请用小页数反复调用，用返回的 `next_cursor` 续爬。
+- **取页失败按 §5 原样透出**：翻页中某一页取数失败时，错误保留**原始的**
+  `code` 与结构化字段（`retry_after_s` / `status` / `context` / `endpoint` / `detail`），
+  只在 `message` 里附"第 N 页"。**不会**被吞成 `internal`——否则外壳分不清
+  "重新登录 / 退避 / 参数写错 / 组件 bug"（1.5.1）；
+- **`seq` / `events` 只覆盖本次调用**：`events` 是**本次 `crawl.run` 期间**产生的事件，
+  不含历史轮次；`seq` 是进程内单调递增的事件序号，**不回退**（下一次调用的 `seq` 不小于上次，1.5.1）；
+- **取消有两种可观测形态**：在页边界察觉取消 → 正常返回 `done_reason: "cancelled"`；
+  取页请求在飞行中被取消 → 返回 `error.code: "cancelled"`。两者都表示"调用方取消"，
+  不是故障，外壳对两者都按取消处理。
 
 | `done_reason` | 含义 |
 |---|---|
@@ -483,6 +496,9 @@ HTTP 状态只表达"传输层发生了什么"：
 | `context` | string | 仅 `parse`（解析失败的位置） |
 | `endpoint` | string | 逻辑端点名（如 `user_by_screen_name`）。**不是 URL 路径** |
 | `detail` | object | 仅 `transport`：`{"kind": "timeout" \| "connect" \| "body" \| "fixture" \| "other"}` |
+
+`crawl.run` 的取页失败走**同一套**结构化错误：`code` 保留原始分类（不归 `internal`），
+页号只出现在 `message` 里。
 
 > **只按 `code` 做判断，不许匹配 `message` 文案。**
 > 一个真实的反面教材：下载侧曾用匹配引擎输出文案（`"exit 3"` / `"404"`）来判断能否重试，

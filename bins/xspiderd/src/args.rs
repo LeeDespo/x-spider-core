@@ -43,7 +43,8 @@ xspiderd —— X-Spider sidecar（把 xspider-ffi 的能力包成本地 JSON-RP
   --host <ADDR>         监听地址，默认 127.0.0.1（**不要**暴露到公网）
   --port <N>            监听端口；0 = 随机端口（默认）
   --stdio               改用 stdin/stdout 的 JSON Lines 协议（每行一个请求）
-  --state-dir <DIR>     实例状态目录；提供后启用单实例锁
+  --state-dir <DIR>     实例状态目录；**同时决定下载记录路径**（<DIR>/downloads.json）
+                        与单实例锁。优先于 XSPIDER_STATE_DIR（没有它时锁也不启用）
   --fixture-dir <DIR>   【测试专用】从 fixture 回放，不发真实网络请求
   --token <TOKEN>       指定鉴权 token（默认随机生成；仅测试需要指定）
   -h, --help            显示本帮助

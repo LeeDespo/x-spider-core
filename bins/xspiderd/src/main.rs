@@ -72,18 +72,23 @@ fn run(args: Args) -> Result<(), String> {
 }
 
 fn build_engine(args: &Args) -> Result<Engine, String> {
-    if let Some(dir) = &args.fixture_dir {
+    let engine = if let Some(dir) = &args.fixture_dir {
         tracing::warn!(
             dir = %dir.display(),
             "fixture 回放模式：不会发出任何真实网络请求（测试专用）"
         );
-        return Engine::replay(dir)
-            .map(|engine| engine.with_transport(Transport::Sidecar))
-            .map_err(|e| format!("加载 fixture 失败：{e}"));
-    }
-    xspider::engine_from_env()
-        .map(|engine| engine.with_transport(Transport::Sidecar))
-        .map_err(|e| format!("构造引擎失败：{e}"))
+        Engine::replay(dir).map_err(|e| format!("加载 fixture 失败：{e}"))?
+    } else {
+        xspider::engine_from_env().map_err(|e| format!("构造引擎失败：{e}"))?
+    };
+    // `--state-dir` 不只是实例锁目录：它**同时**决定下载记录路径
+    // （`docs/07` §2.1 第 5 条）。显式 flag 优先于 `XSPIDER_STATE_DIR`，
+    // 优先级规则在 `Engine::with_state_dir` / `resolve_records_path` 里写死并有测试。
+    let engine = engine.with_transport(Transport::Sidecar);
+    Ok(match &args.state_dir {
+        Some(dir) => engine.with_state_dir(dir.clone()),
+        None => engine,
+    })
 }
 
 async fn serve(args: Args, engine: Engine) -> Result<(), String> {

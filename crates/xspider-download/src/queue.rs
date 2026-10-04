@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -285,6 +286,13 @@ struct Inner {
     /// 事件环形缓冲：给"用游标轮询"用（三种传输都支持请求/响应，不支持流）。
     log: Mutex<(u64, Vec<SequencedEvent>)>,
     records: Mutex<HashMap<String, RecordEntry>>,
+    /// 串行化「快照 + 落盘」的写锁。
+    ///
+    /// 为什么独立于 `records`：文件 IO 期间不该卡住 `record_of` / `record_count`
+    /// 这类读者；而**写者本来就该串行**（否则先取快照的可能后写盘，用旧快照覆盖另一条记录）。
+    /// 锁序固定为 `records_write` → `records`；其它路径只单独取 `records`，
+    /// 不存在反向获取，故不成环。
+    records_write: Mutex<()>,
 }
 
 /// 事件缓冲上限。超过就丢最旧的——它是给"轮询取增量"用的，不是审计日志。
@@ -358,6 +366,7 @@ impl DownloadQueue {
             events,
             log: Mutex::new((0, Vec::new())),
             records: Mutex::new(HashMap::new()),
+            records_write: Mutex::new(()),
         });
 
         let queue = Self {
@@ -1119,27 +1128,64 @@ fn push_shared(inner: &Arc<Inner>, event: DownloadEvent) {
     log.1.push(SequencedEvent { seq, event });
 }
 
+/// 唯一临时文件名：`<name>.<pid>.<seq>.tmp`。
+///
+/// 并发写者**绝不能共用同一个临时文件**——否则可能读到彼此写了一半的内容再 rename。
+/// pid 隔离跨进程，进程内自增序号隔离同进程内的并发写者。
+fn unique_records_tmp(path: &Path) -> PathBuf {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "records.json".to_string());
+    path.with_file_name(format!("{name}.{}.{}.tmp", std::process::id(), n))
+}
+
 fn write_record_shared(inner: &Arc<Inner>, config: &QueueConfig, job_id: &str, entry: RecordEntry) {
-    {
-        let mut records = inner.records.lock().expect("records poisoned");
-        records.insert(job_id.to_string(), entry);
-    }
+    write_record_shared_impl(inner, config, job_id, entry, &|| {});
+}
+
+/// `before_persist` 仅测试用：在**持有写锁**、取完快照之后、落盘之前调用，
+/// 用来确定性地制造「快照已取、盘还没写」的窗口。生产路径传空闭包。
+fn write_record_shared_impl(
+    inner: &Arc<Inner>,
+    config: &QueueConfig,
+    job_id: &str,
+    entry: RecordEntry,
+    before_persist: &dyn Fn(),
+) {
+    // 没配记录路径：只更新内存（内存是权威，盘只供重启恢复）。
     let Some(path) = &config.records_path else {
+        inner
+            .records
+            .lock()
+            .expect("records poisoned")
+            .insert(job_id.to_string(), entry);
         return;
     };
-    let file = RecordsFile {
-        version: RECORDS_VERSION,
-        jobs: inner.records.lock().expect("records poisoned").clone(),
-    };
+
+    // 同一把写锁包住「insert + 快照 + 写盘」：否则两个任务同时完成时，
+    // 先取快照的可能后写盘，用旧快照覆盖掉另一条记录（重启后丢幂等与断点）。
+    let _write = inner.records_write.lock().expect("records write poisoned");
+    let file = {
+        let mut records = inner.records.lock().expect("records poisoned");
+        records.insert(job_id.to_string(), entry);
+        RecordsFile {
+            version: RECORDS_VERSION,
+            jobs: records.clone(),
+        }
+    }; // <- records 锁在这里就释放，读者不受落盘影响
+    before_persist();
     let Ok(text) = serde_json::to_string_pretty(&file) else {
         return;
     };
-    let tmp = path.with_extension("json.tmp");
+    let tmp = unique_records_tmp(path);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if std::fs::write(&tmp, text).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
+    if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -1525,6 +1571,97 @@ mod tests {
             0,
             "版本不认识就该忽略，而不是按当前格式硬读"
         );
+        queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn record_entry(job_id: &str) -> RecordEntry {
+        RecordEntry {
+            state: JobState::Complete,
+            dest_path: format!("/tmp/{job_id}.bin"),
+            bytes: 1,
+            url: format!("http://example.invalid/{job_id}"),
+            expect_size: Some(1),
+            completed_at: Some("2026-10-01".to_string()),
+            tag: None,
+        }
+    }
+
+    /// 并发写者绝不能共用同一个临时文件（会撕裂）。
+    #[test]
+    fn records_tmp_files_are_unique_per_writer() {
+        let p = Path::new("/tmp/xspider/records.json");
+        let a = unique_records_tmp(p);
+        let b = unique_records_tmp(p);
+        assert_ne!(a, b, "两个写者的临时文件名必须不同");
+        assert_eq!(a.parent(), Some(Path::new("/tmp/xspider")));
+        assert!(
+            a.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("records.json."),
+            "临时名应当从记录名派生：{}",
+            a.display()
+        );
+        assert!(a.to_string_lossy().ends_with(".tmp"));
+    }
+
+    /// **快照 + 落盘必须在同一把写锁里**。
+    ///
+    /// 反例（修前）：先 insert 解锁，再另外取锁 clone 整表，然后在锁外写盘——
+    /// A 取完快照停在这里，B 插进来写入自己的记录，A 再把自己的旧快照写回去，
+    /// **B 的记录就从盘上消失了**（重启后丢幂等与断点）。
+    ///
+    /// 这条用 `before_persist` 钩子在「快照已取、盘还没写」的窗口里插入并发写者，
+    /// 确定性地逼出那个交错：修好后 A 全程持有写锁，B 只能排在后面，
+    /// 它取到的快照已经包含 A，最终两条都在。
+    #[tokio::test]
+    async fn snapshot_and_persist_are_serialized_so_no_record_is_lost() {
+        let dir = std::env::temp_dir().join(format!("xspider-q-atomic-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let queue = DownloadQueue::start(config(&dir)).await.expect("启动队列");
+        let inner = queue.inner.clone();
+        let cfg = queue.config.clone();
+
+        let (snapshot_taken_tx, snapshot_taken_rx) = std::sync::mpsc::channel::<()>();
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+
+        let inner_a = inner.clone();
+        let cfg_a = cfg.clone();
+        let a = std::thread::spawn(move || {
+            write_record_shared_impl(&inner_a, &cfg_a, "job-a", record_entry("job-a"), &|| {
+                let _ = snapshot_taken_tx.send(());
+                let _ = go_rx.recv();
+            });
+        });
+
+        snapshot_taken_rx
+            .recv()
+            .expect("A 应当取完快照并停在落盘前");
+        let inner_b = inner.clone();
+        let cfg_b = cfg.clone();
+        let b = std::thread::spawn(move || {
+            write_record_shared(&inner_b, &cfg_b, "job-b", record_entry("job-b"));
+        });
+        // B 尝试拿写锁的时间窗；即便它还没到，最终文件也必须两条都有。
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let _ = go_tx.send(());
+
+        a.join().unwrap();
+        b.join().unwrap();
+
+        let raw = std::fs::read_to_string(dir.join("records.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(
+            parsed["jobs"]["job-a"].is_object(),
+            "A 的记录必须落盘：{raw}"
+        );
+        assert!(
+            parsed["jobs"]["job-b"].is_object(),
+            "B 的记录不许被 A 的旧快照覆盖：{raw}"
+        );
+        assert_eq!(queue.record_count(), 2);
+
         queue.shutdown().await;
         let _ = std::fs::remove_dir_all(&dir);
     }

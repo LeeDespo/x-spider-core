@@ -88,6 +88,10 @@ pub struct Engine {
     /// 当前形态。**默认 `Cdylib`**：直接用 `Engine` 的 Rust API 就是进程内调用；
     /// xspiderd 会显式改成 `Sidecar`（它才知道自己在当 sidecar）。
     transport: Transport,
+    /// sidecar 的 `--state-dir`。**优先于** `XSPIDER_STATE_DIR`：
+    /// 显式的命令行参数比进程环境更具体（`docs/07` §2.1 第 5 条 / §2.4）。
+    /// 它决定下载记录路径（重启对账读的就是那里的 `downloads.json`）。
+    state_dir: Option<std::path::PathBuf>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -107,6 +111,7 @@ impl Engine {
             download: Arc::new(tokio::sync::OnceCell::new()),
             crawl_log: Arc::new(std::sync::Mutex::new(CrawlEventLog::default())),
             transport: Transport::Cdylib,
+            state_dir: None,
         }
     }
 
@@ -116,42 +121,67 @@ impl Engine {
         self
     }
 
+    /// sidecar 用：显式指定实例状态目录。
+    ///
+    /// **优先于 `XSPIDER_STATE_DIR`**——命令行参数比进程环境更具体。
+    /// 它决定下载记录路径（`<dir>/downloads.json`），重启对账读的就是它。
+    /// 与 `--state-dir` 的单实例锁是同一个目录（锁由 `xspiderd` 侧获取）。
+    pub fn with_state_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.state_dir = Some(dir.into());
+        self
+    }
+
+    /// 当前显式状态目录（`--state-dir`）；没设就是 `None`（回退 `XSPIDER_STATE_DIR`）。
+    pub fn state_dir(&self) -> Option<&std::path::Path> {
+        self.state_dir.as_deref()
+    }
+
     pub fn transport(&self) -> Transport {
         self.transport
     }
 
+    /// 组装下载队列的配置（**不启动队列**）。
+    ///
+    /// 抽成独立方法是为了让"配置从哪儿来"可离线单测（下载记录路径的优先级尤其如此），
+    /// 而不必真的起一个队列（那会连带去 spawn Aria2Next）。
+    fn queue_config(&self) -> QueueConfig {
+        let mut config = QueueConfig {
+            proxy: self.stack.proxy(),
+            limits: self.stack.limits(),
+            ..QueueConfig::default()
+        };
+        if let Some(binary) = Aria2NextConfig::locate_binary() {
+            config.aria2 = Some(Aria2NextConfig::new(binary, std::env::temp_dir()));
+        }
+        // 下载记录路径：**`--state-dir` 优先于 `XSPIDER_STATE_DIR`**。
+        // 两边都没给就不落盘（内存是权威，盘只供重启恢复）。
+        let env_dir = std::env::var("XSPIDER_STATE_DIR").ok();
+        config.records_path = resolve_records_path(self.state_dir.as_deref(), env_dir.as_deref());
+        // 探测媒体大小是**可关**的：它对完整性校验有价值（`docs/02` §E2），
+        // 代价是每个未知大小的媒体多一次 CDN 请求。参考实现选择不探
+        // （用 5.25 倍误差的估算，`docs/02` §E9）——这里把选择权留给外壳。
+        if let Ok(value) = std::env::var("XSPIDER_PROBE_SIZE") {
+            if matches!(value.trim(), "0" | "false" | "off") {
+                config.probe_size_when_unknown = false;
+            }
+        }
+        config
+    }
+
     /// 取（必要时创建）下载队列。
     ///
-    /// 配置来自环境变量，且**引擎选择留在组件内部**（`docs/01` §5.2 纪律 1）：
+    /// 配置来自环境变量（外加显式的 `--state-dir`），且**引擎选择留在组件内部**
+    /// （`docs/01` §5.2 纪律 1）：
     /// - `XSPIDER_ARIA2_PATH`：Aria2Next 二进制；给了就启用外派后端；
     /// - `XSPIDER_STATE_DIR`：下载记录（重启对账）落在这里。
+    ///   但**显式的 `--state-dir` 优先**（见 [`resolve_records_path`]）。
     async fn download_queue(&self) -> XResult<Arc<DownloadQueue>> {
         let queue = self
             .download
             .get_or_try_init(|| async {
-                let mut config = QueueConfig {
-                    proxy: self.stack.proxy(),
-                    limits: self.stack.limits(),
-                    ..QueueConfig::default()
-                };
-                if let Some(binary) = Aria2NextConfig::locate_binary() {
-                    config.aria2 = Some(Aria2NextConfig::new(binary, std::env::temp_dir()));
-                }
-                if let Ok(dir) = std::env::var("XSPIDER_STATE_DIR") {
-                    if !dir.trim().is_empty() {
-                        config.records_path =
-                            Some(std::path::PathBuf::from(dir).join("downloads.json"));
-                    }
-                }
-                // 探测媒体大小是**可关**的：它对完整性校验有价值（`docs/02` §E2），
-                // 代价是每个未知大小的媒体多一次 CDN 请求。参考实现选择不探
-                // （用 5.25 倍误差的估算，`docs/02` §E9）——这里把选择权留给外壳。
-                if let Ok(value) = std::env::var("XSPIDER_PROBE_SIZE") {
-                    if matches!(value.trim(), "0" | "false" | "off") {
-                        config.probe_size_when_unknown = false;
-                    }
-                }
-                DownloadQueue::start(config).await.map(Arc::new)
+                DownloadQueue::start(self.queue_config())
+                    .await
+                    .map(Arc::new)
             })
             .await?;
         Ok(queue.clone())
@@ -458,6 +488,12 @@ impl Engine {
         });
 
         let log = self.crawl_log.clone();
+        // 下界：本次调用**开始前**的 seq。返回的 events 只覆盖本轮，
+        // 不再把进程启动以来所有轮次的事件重复返回（`docs/07` §4.5 写的是「本轮」；
+        // 外壳按文档推荐的"分块小页数反复调用"时，旧写法会重复收到历史事件）。
+        // `seq` 仍然全局单调（`CrawlEventLog::push` 只增，见本文件底部），
+        // 这里改的只是过滤下界，不会让 seq 回退。
+        let start_seq = log.lock().map(|l| l.seq).unwrap_or(0);
         let outcome = xspider_download::crawl(&strategy, source_fn, cancel, move |event| {
             if let Ok(mut log) = log.lock() {
                 log.push(event);
@@ -488,8 +524,8 @@ impl Engine {
         let (seq, events) = self
             .crawl_log
             .lock()
-            .map(|log| log.since(0))
-            .unwrap_or((0, Vec::new()));
+            .map(|log| log.since(start_seq))
+            .unwrap_or((start_seq, Vec::new()));
         Ok(serde_json::json!({
             "done_reason": outcome.done_reason,
             "candidates": outcome.candidates,
@@ -612,6 +648,29 @@ impl CrawlEventLog {
             .collect();
         (self.seq, items)
     }
+}
+
+/// 解析下载记录路径：**显式 `--state-dir` 优先于 `XSPIDER_STATE_DIR`**；
+/// 记录文件固定叫 `downloads.json`（重启对账读的就是它）。
+///
+/// 为什么把优先级写死在这里而不在两处各读一次：`--state-dir` 是**命令行参数**，
+/// 比进程环境更具体；两边同时存在时让 flag 赢，`docs/07` §2.1 第 5 条 / §2.4 就是这么写的。
+/// 独立的纯函数还能让优先级规则离线、并行、无环境副作用地被钉住
+/// （直接改进程环境变量的写法会让同进程的其它用例不确定）。
+///
+/// 空白的环境变量等同于没设（shell 里 `XSPIDER_STATE_DIR=` 很常见）。
+fn resolve_records_path(
+    explicit: Option<&std::path::Path>,
+    env_dir: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    explicit
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env_dir
+                .filter(|d| !d.trim().is_empty())
+                .map(std::path::PathBuf::from)
+        })
+        .map(|dir| dir.join("downloads.json"))
 }
 
 fn ensure_object(params: &Value) -> XResult<&serde_json::Map<String, Value>> {
@@ -1148,5 +1207,127 @@ mod tests {
         // 回放目录是空的 → 一定会缺 fixture，但报错里应该出现被 trim 过的用户名
         assert!(err.to_string().contains("jack"), "{err}");
         assert!(!err.to_string().contains("@jack"), "{err}");
+    }
+
+    fn fixtures_engine_with_credentials() -> Engine {
+        use xspider_core::creds::Credentials;
+
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+        let stack = HttpStack::replay(&dir).expect("fixture 目录应当存在");
+        // 回放的路由要求"带凭据"（fixture 是按这个条件录的），给一份假凭据即可
+        stack.set_credentials(Some(
+            Credentials::from_cookie("auth_token=fixture; ct0=fixture", None).unwrap(),
+        ));
+        Engine::with_stack(stack)
+    }
+
+    fn one_media_page_params() -> Value {
+        json!({
+            "source": "medias",
+            "user_id": "13298072",
+            "strategy": { "limits": { "page_size": 20, "max_pages": 1 } }
+        })
+    }
+
+    /// `crawl.run` 的 `events` **只覆盖本次调用**，`seq` 仍全局单调（不回退）。
+    ///
+    /// 这条钉的是一个真实缺口：原来返回的是 `since(0)`——进程启动以来**所有**轮次的
+    /// 事件，从不清理。而 `docs/07` §4.5 写的是「本次调用」，并推荐外壳"分块小页数
+    /// 反复调用"续爬——那样每调一次就会重复收到此前所有轮次的事件（越长越肿）。
+    /// 修法是记下调用开始前的 seq 作下界。
+    ///
+    /// 注意它**不是**把 seq 归零：seq 依旧进程内单调（下一条断言），外壳若拿它做
+    /// 去重游标，跨调用仍然稳定。
+    #[tokio::test]
+    async fn crawl_run_events_cover_only_this_call_and_seq_never_goes_backwards() {
+        let engine = fixtures_engine_with_credentials();
+        let params = one_media_page_params();
+
+        let first = engine
+            .call("crawl.run", &params)
+            .await
+            .expect("第一次爬取应当成功");
+        let first_seq = first["seq"].as_u64().expect("seq 是整数");
+        let first_events = first["events"].as_array().expect("events 是数组");
+        assert!(
+            !first_events.is_empty(),
+            "第一次调用就该有事件（Page/Done），否则这条用例证明不了什么"
+        );
+
+        let second = engine
+            .call("crawl.run", &params)
+            .await
+            .expect("第二次爬取应当成功");
+        let second_seq = second["seq"].as_u64().expect("seq 是整数");
+        let second_events = second["events"].as_array().expect("events 是数组");
+        assert!(!second_events.is_empty(), "第二次调用同样应当产生本轮事件");
+
+        // ① 本次调用的事件：每条的 seq 都严格大于**调用开始前**的 seq。
+        //    旧写法（since(0)）会把第一轮的事件也带回来，这条断言就会红。
+        for event in second_events {
+            let seq = event["seq"].as_u64().expect("事件带 seq");
+            assert!(
+                seq > first_seq,
+                "第二次调用返回了上一轮的事件：seq {seq} <= {first_seq}（events 应当只覆盖本次调用）"
+            );
+        }
+
+        // ② seq 单调不回退：第二次结束时的 seq 必须大于第一次结束时的 seq。
+        assert!(
+            second_seq > first_seq,
+            "seq 回退了：{second_seq} <= {first_seq}"
+        );
+    }
+
+    /// 下载记录路径的优先级：**显式 `--state-dir` 优先于 `XSPIDER_STATE_DIR`**；
+    /// 都没有就不落盘。规则写死在一个纯函数里，便于确定性地钉住
+    /// （直接改进程环境变量会让同进程的其它用例变得不确定）。
+    #[test]
+    fn state_dir_decides_records_path_and_the_flag_wins_over_the_env() {
+        let explicit = std::path::Path::new("/tmp/xspider-explicit");
+        // flag 与 env 同时存在 → flag 赢
+        assert_eq!(
+            resolve_records_path(Some(explicit), Some("/tmp/xspider-env")),
+            Some(std::path::PathBuf::from(
+                "/tmp/xspider-explicit/downloads.json"
+            )),
+            "`--state-dir` 必须优先于 `XSPIDER_STATE_DIR`"
+        );
+        // 只有 env → 用 env
+        assert_eq!(
+            resolve_records_path(None, Some("/tmp/xspider-env")),
+            Some(std::path::PathBuf::from("/tmp/xspider-env/downloads.json"))
+        );
+        // 都没有 → 不落盘
+        assert_eq!(resolve_records_path(None, None), None);
+        // 空白 env（shell 里 `XSPIDER_STATE_DIR=` 很常见）等同于没设
+        assert_eq!(resolve_records_path(None, Some("   ")), None);
+        assert_eq!(
+            resolve_records_path(Some(explicit), Some("   ")),
+            Some(std::path::PathBuf::from(
+                "/tmp/xspider-explicit/downloads.json"
+            ))
+        );
+    }
+
+    /// `Engine` 这一层也要把 `--state-dir` 接进队列配置——**离线、不起队列**
+    /// （`queue_config` 只组装配置，不 spawn Aria2Next）。
+    ///
+    /// 这条看的是"设定值 → 配置里的 records_path"这段连线。显式值恒赢于
+    /// `XSPIDER_STATE_DIR`，所以即使跑测试的机器上设了那个环境变量，断言依旧确定。
+    #[test]
+    fn engine_wires_state_dir_into_the_records_path() {
+        let engine = engine().with_state_dir("/tmp/xspider-engine-state");
+        assert_eq!(
+            engine.state_dir(),
+            Some(std::path::Path::new("/tmp/xspider-engine-state"))
+        );
+        assert_eq!(
+            engine.queue_config().records_path,
+            Some(std::path::PathBuf::from(
+                "/tmp/xspider-engine-state/downloads.json"
+            )),
+            "--state-dir 必须决定下载记录路径（docs/07 §2.1 第 5 条）"
+        );
     }
 }

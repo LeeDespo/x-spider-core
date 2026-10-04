@@ -210,6 +210,65 @@ impl XError {
         }
     }
 
+    /// 给错误的**人读 message** 加一段前缀，**保留 code 与全部结构化字段**。
+    ///
+    /// 用途：跨层调用者（爬取循环）要把「第 N 页」这类位置信息带给外壳，
+    /// 但**不能**把 unauthorized / rate_limited / not_found / parse / invalid_request
+    /// 吞成 internal——外壳靠 `code` 决定「重新登录 / 退避 / 报参数错 / 报组件 bug」。
+    /// `Parse::context`、`RateLimited::retry_after_s`、`Upstream::status`、
+    /// `Transport::kind`、`endpoint` 全部原样保留。
+    ///
+    /// `RateLimited` / `Cancelled` 没有 message 字段（是自描述的结构化错误），
+    /// 无处放前缀，原样返回——加 message 字段会牵动 `to_object` 与所有 match 臂，
+    /// 不是最小改法。它们的 code 与结构化字段本来就完整。
+    pub fn with_message_prefix(self, prefix: impl AsRef<str>) -> Self {
+        let p = prefix.as_ref();
+        match self {
+            XError::InvalidRequest { message } => XError::InvalidRequest {
+                message: format!("{p}{message}"),
+            },
+            XError::Unauthorized { message, endpoint } => XError::Unauthorized {
+                message: format!("{p}{message}"),
+                endpoint,
+            },
+            XError::NotFound { message, endpoint } => XError::NotFound {
+                message: format!("{p}{message}"),
+                endpoint,
+            },
+            XError::Upstream {
+                status,
+                message,
+                endpoint,
+            } => XError::Upstream {
+                status,
+                message: format!("{p}{message}"),
+                endpoint,
+            },
+            XError::Parse {
+                context,
+                message,
+                endpoint,
+            } => XError::Parse {
+                context,
+                message: format!("{p}{message}"),
+                endpoint,
+            },
+            XError::Transport {
+                kind,
+                message,
+                endpoint,
+            } => XError::Transport {
+                kind,
+                message: format!("{p}{message}"),
+                endpoint,
+            },
+            XError::Internal { message } => XError::Internal {
+                message: format!("{p}{message}"),
+            },
+            other @ (XError::RateLimited { .. } | XError::Cancelled) => other,
+        }
+    }
+
     pub fn code(&self) -> ErrorCode {
         match self {
             XError::InvalidRequest { .. } => ErrorCode::InvalidRequest,
@@ -380,6 +439,97 @@ mod tests {
         let v = err_envelope(&te);
         assert_eq!(v["error"]["code"], "transport");
         assert_eq!(v["error"]["detail"]["kind"], "timeout");
+    }
+
+    #[test]
+    fn message_prefix_keeps_code_and_structured_fields() {
+        // 跨层调用者只该改人读 message，**不能**把分类吞掉。
+        // 这条钉住「加前缀后 code 与每个结构化字段逐字段不变」。
+        let prefix = "取页失败（第 3 页）：";
+        // `expect_front`：Display 就是 `{message}` 的变体，前缀加在最前面；
+        // Upstream / Parse / Transport 的 Display 会再包一层（状态/上下文/kind），
+        // 前缀落在包装内——但只要最终 message 含页号即可，code 与字段才是关键。
+        let cases: Vec<(XError, bool)> = vec![
+            (XError::invalid_request("source 不合法"), true),
+            (
+                XError::Unauthorized {
+                    message: "凭据失效".into(),
+                    endpoint: Some("user_by_screen_name".into()),
+                },
+                true,
+            ),
+            (
+                XError::NotFound {
+                    message: "找不到".into(),
+                    endpoint: Some("user_by_screen_name".into()),
+                },
+                true,
+            ),
+            (
+                XError::Upstream {
+                    status: 503,
+                    message: "boom".into(),
+                    endpoint: Some("home_timeline".into()),
+                },
+                false,
+            ),
+            (
+                XError::Parse {
+                    context: "entries[0]".into(),
+                    message: "缺字段".into(),
+                    endpoint: Some("tweet_detail".into()),
+                },
+                false,
+            ),
+            (
+                XError::Transport {
+                    kind: "timeout",
+                    message: "10s 未响应".into(),
+                    endpoint: Some("search_timeline".into()),
+                },
+                false,
+            ),
+            (XError::internal("内部错误"), true),
+        ];
+        for (err, expect_front) in cases {
+            let code = err.code();
+            let before = err.to_object();
+            let after = err.with_message_prefix(prefix).to_object();
+            assert_eq!(after.code, code, "code 不许被前缀改掉");
+            assert!(
+                after.message.contains(prefix),
+                "人读 message 必须带前缀上下文：{}",
+                after.message
+            );
+            if expect_front {
+                assert_eq!(after.message, format!("{prefix}{}", before.message));
+            }
+            // 结构化字段逐字段原样保留
+            assert_eq!(after.retry_after_s, before.retry_after_s);
+            assert_eq!(after.status, before.status);
+            assert_eq!(after.context, before.context);
+            assert_eq!(after.endpoint, before.endpoint);
+            assert_eq!(after.detail, before.detail);
+        }
+    }
+
+    #[test]
+    fn message_prefix_is_a_noop_for_structured_errors_without_message() {
+        // RateLimited / Cancelled 没有可放前缀的 message 字段：原样返回，
+        // 它们的 code 与结构化字段本来就完整。
+        let rl = XError::RateLimited {
+            retry_after_s: 120,
+            endpoint: Some("user_by_screen_name".into()),
+        };
+        assert_eq!(rl.clone().with_message_prefix("x"), rl);
+        assert_eq!(
+            rl.with_message_prefix("x").to_object().retry_after_s,
+            Some(120)
+        );
+        assert_eq!(
+            XError::Cancelled.clone().with_message_prefix("x"),
+            XError::Cancelled
+        );
     }
 
     #[test]

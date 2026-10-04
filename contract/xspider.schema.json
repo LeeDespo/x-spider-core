@@ -1901,13 +1901,15 @@
             "type": "string"
           },
           "seq": {
-            "type": "integer"
+            "type": "integer",
+            "description": "本次调用结束时的进程内事件序号；单调递增、不回退。"
           },
           "events": {
             "type": "array",
             "items": {
               "type": "object"
-            }
+            },
+            "description": "只包含本次调用期间产生的爬取事件，不含历史轮次。"
           }
         }
       }

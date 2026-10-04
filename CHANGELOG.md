@@ -27,6 +27,15 @@
   `--list-methods`（外壳的启动自检）；退出码 0 成功 / 1 有媒体没下成 / 2 用法错 / 3 契约失败。
 
 ### 契约
+- **契约版本 → 1.5.1**（PATCH，**不增删 method / 字段 / 错误码**）：四个修复。
+  ① `crawl.run` 的取页失败**原样透出**原始结构化错误（`code` 与
+  `retry_after_s` / `status` / `context` / `endpoint` / `detail`），只在 `message` 里附页号，
+  不再一律吞成 `internal`；② `crawl.run` 的 `seq` / `events` 收敛为**本次调用**的事件
+  （`seq` 仍进程内单调、不回退）；③ sidecar 的 `--state-dir` 与 `XSPIDER_STATE_DIR`
+  都决定下载记录路径（**flag 优先**）；④ 下载记录落盘的并发原子性修复。
+  ①②③ 是把实现修回契约早已承诺的行为；④ 是纯内部修复，对外不可见。
+  （`posts[]` 的加法是 1.5.0，见下条。本仓库惯例：契约版本变更统一列在 [未发布]，
+  直到切出下一个构建版本，故 1.5.1 与 1.5.0 同处本节、各自成条、互不覆盖。）
 - **契约版本 → 1.5.0**：`crawl.run` 的结果新增 **`posts[]`**——这一轮**保留的完整推文**
   （与 `candidates` 是同一批数据的两个视角）。起因是接真实外壳时暴露的一个设计缺口：
   候选是**有损**的（只有 url 与几个标量），而外壳要按用户的文件名模板命名、把任务写进
@@ -56,6 +65,23 @@
   各自 `additionalProperties: false`）与 `$defs/integrity`，`items` 指向它，
   并有契约守卫测试盯字段集合。此前机器可读契约在这里写的是
   `{"items": {"type": "object"}}`——等于把"猜"留给每个消费方。
+
+### 修复（契约 1.5.1）
+- **`crawl.run` 的取页失败被吞成 `internal`**：翻页中某一页取数失败时，
+  `unauthorized` / `rate_limited` / `not_found` / `parse` / `invalid_request` /
+  `upstream` / `transport` 全被替换成 `internal`，外壳分不清"重新登录 / 退避 /
+  参数写错 / 组件 bug"。现在保留原始 `code` 与结构化字段，页号只写进 `message`。
+  **不改 error 字段集合**，schema 与契约守卫不动。
+- **`crawl.run` 返回进程级累积事件**：`events` 此前取的是进程启动以来**所有**轮次的事件，
+  而文档写的是"本轮"；外壳按推荐方式"小页数反复调用"会重复收到历史事件。
+  现在 `seq` / `events` 只覆盖**本次调用**，`seq` 仍进程内单调、不回退。
+- **`--state-dir` 不决定下载记录路径**：此前它只用于实例锁，记录路径只认
+  `XSPIDER_STATE_DIR`，而文档写"下载记录与重启对账都在 `--state-dir` 里"。
+  现在两者都决定记录路径，**`--state-dir` 优先**（并仍启用单实例锁）。
+- **下载记录落盘不是原子的**（对外不可见）：先 insert 解锁、再重新 clone 整个记录表写盘，
+  两次加锁之间别的任务 insert 会写出缺一条的旧快照；并发写者还共用同一个 `.tmp`。
+  现在"快照 + 写盘"在同一把写锁内完成，并用唯一临时文件名再 rename。
+  对外可观测行为不变（`downloads.json` 格式 / `RECORDS_VERSION` 不变）。
 
 ### 修复
 - **`xspiderd` 现在真的认 `XSPIDER_COOKIE`**：此前文档（与 `AGENTS.md` 的常用命令）都写了

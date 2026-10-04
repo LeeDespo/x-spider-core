@@ -473,3 +473,53 @@
   （换 cookie 时清）。
 - **何时该推翻**：如果某个平台要求"写操作必须由外壳亲自发起"（例如平台侧审计），
   那就把 `fetch.mutate` 降级成 `dl.plan` 那样的"产描述、由外壳执行"。
+
+## ADR-041 契约 1.5.1 的四个修复：错误透传、事件归属、`--state-dir`、记录落盘原子性
+- **背景**：一轮审计在组件里发现四处"实现与契约对不上"，且都是**实现没做到文档已经承诺的事**，
+  不是要改契约语义。按铁律 1，先改契约/文档（本 ADR 是这一轮的设计依据），再改代码。
+  四条**都不增删 method / 字段 / 错误码**，属 PATCH：契约版本 1.5.0 → **1.5.1**。
+- **四条修复与对外可见性**：
+  1. **`crawl.run` 的取页错误被吞成 `internal`**（`crates/xspider-download/src/crawl.rs` 的
+     `map_err`）——**改对外行为**。修后保留原始 `ErrorCode` 与结构化字段
+     （`retry_after_s` / `status` / `context` / `endpoint` / `detail`），页号只进 `message`。
+     这正是 §5 早已规定的结构化错误模型，此前只有 `crawl.run` 这一条路破坏它。
+     **不改 error 字段集合**：`$defs/error` 是 `additionalProperties:false`，加字段会触发
+     契约守卫（`contract_guard.rs` 逐个核对字段集合），所以页号只能放 `message`。
+  2. **`crawl.run` 的 `events` 取进程级累积**（`crates/xspider-ffi/src/engine.rs` 取
+     `crawl_log.since(0)`，环形缓冲从不清理）——**改对外行为**。`events` 收敛为**本次调用**，
+     `seq` 仍进程内单调、不回退（下界从 0 改为调用前的 seq）。与 `docs/CONTRACT.md` §4.14、
+     `docs/07` §4.5 早已写的"本轮"一致。schema 里 `seq`/`events` 无逐字段约束，结构不必动。
+  3. **`--state-dir` 不决定下载记录路径**（`bins/xspiderd/src/main.rs` 只拿它取实例锁；
+     `records_path` 只认 `XSPIDER_STATE_DIR`，`engine.rs`）——**改 CLI/sidecar 行为，
+     不改契约载荷**。修后 `--state-dir` 同时决定 `records_path`，**flag 优先**于环境变量；
+     实例锁仍只由 `--state-dir` 触发。这是让"文档早就这么写"成立，而非新增能力。
+  4. **下载记录落盘非原子**（`crates/xspider-download/src/queue.rs` 的 `write_record_shared`：
+     先解锁 insert、再重新 clone 整表写盘；并发写者共用同一个 `.tmp`）——**纯内部修复，
+     对外不可见**。修后"快照 + 写盘"在同一把写锁内完成，临时文件名唯一再 rename。
+     `downloads.json` 的格式与 `RECORDS_VERSION` 不变。
+- **选项**：A 只改实现、文档不动 / B 文档与实现一起改 / C 改契约语义。
+  **决定：B**。四条都是"实现偏离已承诺行为"，契约条文不改语义、只补精确措辞；
+  C 不成立——没有任何一条需要改 method / 字段 / 错误码。
+- **理由**：契约与实现不一致时错的是实现（ADR-036 已确立）。逐条的可观测后果都很具体：
+  `internal` 让外壳把"重新登录"当成"组件 bug"；进程级事件让按推荐方式"小页数反复调用"的
+  外壳重复处理历史事件；`--state-dir` 不落记录让"它在管记录"成为假文档；非原子写让并发完成时
+  丢记录，而记录是决定"重启后能不能对账"的资产（踩坑 28 / 铁律"记录是契约级资产"）。
+- **代价 / 已知缺口（本轮**不**修，必须写清）**：
+  1. `write_record_shared` 的生产调用点只有"完成"那一处（`finish_job` 的 Ok 分支），
+     **未完成 / 暂停 / 失败的记录从不落盘**——所以 `load_records` 的"恢复未完成任务"
+     分支在生产里是死代码，"重启续传未完成任务"尚未生效。第 4 条只修"已完成记录的写是
+     原子的"，**不修**这个缺口。已在 `docs/CONTRACT.md` §4.13、`docs/07` §2.2、
+     `docs/08` §5.3 与 `docs/ROADMAP.md` 风险台账标注。
+  2. 记录路径的**跨进程互斥**仍不足：实例锁只在传 `--state-dir` 时获取，而真实外壳只传
+     `--port 0` + `XSPIDER_STATE_DIR`（`x-spider-mac` 的 `XSpiderComponent`）——这条路径
+     **没有锁**，两个共享同一 `XSPIDER_STATE_DIR` 的 sidecar 仍会交错写整表快照、丢更新。
+     即第 4 条的正确性依赖"同目录只有一个写者"，而这一点当前**不保证**；唯一临时名只避免
+     `.tmp` 互踩，不避免丢更新。多实例安全需要"env 也触发锁"或按文件加锁，属后续工作。
+  3. `crawl.run` 取消存在**两种可观测形态**（页边界察觉 → `done_reason:"cancelled"`；
+     取页在飞行中被取消 → `error.code:"cancelled"`）。本轮决定**如实写进契约**（两种都按
+     取消处理），而不是强行归一化——归一化要动 `source` 闭包的错误路径，超出本轮范围。
+- **何时该推翻**：
+  ① 若产品要求"未完成任务也能重启续传"，就必须先把 Waiting/Active/Paused 状态的记录落盘，
+    并补一条"暂停/中断后重启 → `load_records` 恢复"的 E2E；届时缺口 1 作废；
+  ② 若外壳开始给 sidecar 传 `--state-dir`（或锁改为 env 也触发），缺口 2 作废；
+  ③ 若后来决定 crawl 取消只保留一种形态，缺口 3 的措辞随之收窄。

@@ -11,7 +11,7 @@
 >
 > 本册不是开发日志：这里只写**当前版本的事实**。变更历史见 [`CHANGELOG.md`](../CHANGELOG.md)。
 
-**版本**：契约 `1.5.0` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
+**版本**：契约 `1.5.1` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ```bash
 $ xspiderd --port 0
-ready {"port":49152,"token":"…","version":"1.5.0","build":"0.1.0"}     # ← stdout，只有这一行
+ready {"port":49152,"token":"…","version":"1.5.1","build":"0.1.0"}     # ← stdout，只有这一行
 
 # 另开一个终端（port / token 用上面这一行里的）
 $ curl -s http://127.0.0.1:49152/ \
@@ -123,15 +123,21 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
    不要打日志；
 3. **stdout 只有 ready 那一行**：别把别的输出混进去，也不要依赖 stderr 的解析；
 4. **退出时先 `system.shutdown`**（优雅：落盘状态、结束后端子进程），5 秒没退再 `kill`。
-   只 kill 的话，下载记录与断点可能没落盘；
-5. **多实例各自独立的 `--state-dir`**：下载记录与单实例锁都在那里，共用会互相踩；
+   只 kill 的话，已经写下的下载记录可能来不及落盘（**未完成任务的断点目前不会落盘**，见 §2.2）；
+5. **多实例各自独立的 `--state-dir`**：`--state-dir` 既是**单实例锁**目录，也决定
+   **下载记录**路径；`XSPIDER_STATE_DIR` 只决定下载记录（**`--state-dir` 优先**）。
+   多实例必须各不相同，共用会互相踩；
 6. **组件自带父进程看门狗**：外壳被强杀（SIGKILL、调试器停进程、测试宿主被收走）时，
    `xspiderd` 会自己退出，不留孤儿。但这只是兜底——正常路径仍应显式关停。
 
 ### 2.2 崩溃自愈
 
-`xspiderd` 挂了就重起一个，然后用 `dl.list()` 与外壳自己的记录**对账**
-（队列会从 `--state-dir` 的记录里恢复未完成任务）。
+`xspiderd` 挂了就重起一个，然后用 `dl.list()` 与外壳自己的记录**对账**。
+
+> ⚠️ **已知缺口**：队列虽然实现了"从记录恢复未完成任务"（`load_records`），
+> 但**当前只有已完成的任务才会落记录**——未完成 / 暂停 / 失败的断点不写盘，
+> 所以"重启后续传未完成任务"**还没有生效**（记录目录与 `--state-dir` 的关系见 §2.4；
+> `docs/ROADMAP.md` 风险台账）。
 
 ### 2.3 平台注意（macOS 实测结论）
 
@@ -149,7 +155,7 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 |---|---|
 | `XSPIDER_COOKIE` | 启动时注入 cookie（等价于 `auth.set_cookie`）。**别写进文件** |
 | `XSPIDER_PROXY` | 启动时的代理（等价于 `net.set_proxy {url}`） |
-| `XSPIDER_STATE_DIR` | 下载记录 + 单实例锁的目录。**多实例必须各不相同** |
+| `XSPIDER_STATE_DIR` | 下载记录目录（`--state-dir` 也能决定它，**flag 优先**）。**它不启用单实例锁**——锁只由 `--state-dir` 触发。多实例必须各不相同 |
 | `XSPIDER_ARIA2_PATH` | Aria2Next 二进制路径。不配就只用内置 HTTP 后端（少多连接） |
 | `XSPIDER_PROBE_SIZE` | `0` / `false` / `off` = 不自动探测媒体大小（省 CDN 请求，代价是完整性只按"未知"处理） |
 | `XSPIDER_FIXTURE_DIR` | **测试专用**：从 fixture 回放，不发任何真实网络请求 |
@@ -160,7 +166,7 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 ## 3. cdylib 形态
 
 ```c
-char* xspider_version(void);                                  // "1.5.0"
+char* xspider_version(void);                                  // "1.5.1"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放上面两个函数返回的字符串
 ```
@@ -187,7 +193,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 **出参**
 
 ```json
-{ "contract_version": "1.5.0", "build_version": "0.1.0", "transport": "sidecar" }
+{ "contract_version": "1.5.1", "build_version": "0.1.0", "transport": "sidecar" }
 ```
 
 | 字段 | 说明 |
@@ -569,7 +575,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `raw_items` | 服务端给的原始条目数（**到底判据只看它**，不看筛选后的） |
 | `dropped` | 各类丢弃计数，排查"这次为什么没东西"用 |
 | `next_cursor` | 下次从哪儿继续（`exhausted` 时不出现） |
-| `seq` / `events` | 本轮爬取事件（形状同下载事件，schema 里未逐字段约束） |
+| `seq` / `events` | **本次调用**的爬取事件；`seq` 进程内单调、不回退（形状同下载事件，schema 里未逐字段约束） |
 
 | `done_reason` | 含义 |
 |---|---|
@@ -587,6 +593,12 @@ void  xspider_free(char* ptr);                                // 释放上面两
   （两个组件不直接对接）；
 - 当前是"跑到停为止再返回"（受 `max_pages` 约束）。长爬取请用小页数反复调用，
   用返回的 `next_cursor` 续爬。
+- **取页失败按 §6 原样透出 `code`**：翻页中某一页取数失败时，错误保留原始的
+  `code` 与结构化字段（`retry_after_s` / `status` / `context` / `endpoint` / `detail`），
+  只在 `message` 里附"第 N 页"——**不归 `internal`**，否则外壳分不清
+  "重新登录 / 退避 / 参数写错 / 组件 bug"；
+- **取消有两种形态**：在页边界察觉取消 → 正常返回 `done_reason: "cancelled"`；
+  取页请求在飞行中被取消 → 返回 `error.code: "cancelled"`。两者都按"调用方取消"处理。
 
 ---
 
@@ -797,6 +809,9 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `endpoint` | string | 逻辑端点名（如 `user_by_screen_name`）。**不是 URL 路径** |
 | `detail.kind` | string | 仅 `transport`：`timeout` \| `connect` \| `body` \| `fixture` \| `other` |
 
+`crawl.run` 的取页失败**同样是结构化 error**（见 §4.5）：`code` 是原始分类、不归 `internal`，
+页号只在 `message` 里。
+
 三条纪律：
 
 1. **绝不匹配 `message` 文案**——它是给人看的，改版即变。
@@ -880,4 +895,6 @@ crawl.run { source: "medias", user_id, strategy: { since, until, limits: { max_p
 | **`dl.plan` / `dl.report` 尚未实现** | `host` 逃生舱（iOS 后台 `URLSession` 一类平台强约束），已登记形状，调用会得到 `invalid_request` |
 | **只有 Aria2Next，不支持上游 aria2** | 选项集与行为不同，见 [`NOTICE`](../NOTICE) |
 | **`crawl.run` 的事件形状未逐字段约束** | schema 里 `events` 是通用对象数组；`dl.events` 的事件是逐字段约束的 |
+| **`crawl.run` 取消有两种形态** | 页边界察觉取消 → `done_reason:"cancelled"`；取页在飞行中被取消 → `error.code:"cancelled"`。都按"调用方取消"处理（§4.5） |
+| **未完成任务的断点不落盘** | 当前只有已完成任务写下载记录，所以"重启续传未完成任务"尚未生效（§2.2） |
 | **完整性只管"字节对不对"** | "这个文件真的是图片/mp4 吗"（魔数、HTML 误页）由外壳负责——分工见 `docs/06` §5 第 4 条 |
