@@ -134,6 +134,9 @@ jobs:
 
       - name: 安装 Android NDK 27.3.13750724
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default also requests the retired SDK "tools" package.
+          packages: platform-tools
       - name: 安装指定 NDK
         run: |
           sdkmanager "ndk;27.3.13750724"
