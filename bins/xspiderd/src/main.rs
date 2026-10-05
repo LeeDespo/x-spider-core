@@ -60,7 +60,13 @@ fn run(args: Args) -> Result<(), String> {
         .map_err(|e| format!("构造 tokio 运行时失败：{e}"))?;
 
     let mut _lock = None;
-    if let Some(state_dir) = &args.state_dir {
+    let state_dir = args.state_dir.clone().or_else(|| {
+        std::env::var("XSPIDER_STATE_DIR")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(std::path::PathBuf::from)
+    });
+    if let Some(state_dir) = &state_dir {
         _lock = Some(lock::InstanceLock::acquire(state_dir)?);
         tracing::info!(dir = %state_dir.display(), "已取得实例锁");
     }

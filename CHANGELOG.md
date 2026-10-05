@@ -16,6 +16,19 @@
   错误与重试纪律、四份可直接照抄的调用时序。
 - **新增 [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md)**：组件与 `x-spider-mac`
   （tag `pre-component-integration`）的**逐项能力对照**，以及仍未覆盖 / 未接线的部分。
+- **新增 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md)**：26 个 method 的入口索引，
+  详情链接直达 `docs/07` 的对应小节。
+- **新增 [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md)**：Android 构建、
+  sidecar 部署与外壳职责；明确构建通过不等于模拟器、设备或 live 验收。
+
+### 契约（1.5.2 PATCH，ADR-042）
+- `crawl.run` 没有下一页时省略 `next_cursor`，与可选字段约定一致。
+- schema 补齐已有 `crawl.run` 计数字段与事件形状，并将 `auth_required` 纳入 reason 说明；这些是对既有输出的准确描述，没有增加 method、错误码或输出字段。
+- 下载状态写入 version 1 记录并在重启时恢复；Waiting/Active 恢复为 Waiting，Paused 保持暂停，
+  Error（包括取消）保持错误且不自动重试。`dl.prune` 仍只清内存快照，不清持久记录。
+- Android 使用 webpki 公共根证书，macOS 原生信任根保持；新增 Android NDK 构建、打包和 CI 检查。
+  当前没有据此宣称 Android 真机、Aria2Next Android 资产或 live 网络验收通过。
+- 保留 26 个 method 与 3 个 C ABI 导出，不新增契约字段或方法。
 
 ### 新增
 - **`xspider-cli`**（`bins/xspider-cli`）：M4 的"第一个真实消费方"。
@@ -146,7 +159,7 @@
   - `http` 内置后端：流式落盘、Range 续传、断流重试、完整性校验、原子 rename、取消清理；
   - **Aria2Next** 外派后端：子进程 + JSON-RPC，启动时校验 `product=aria2-next`；
   - 下载队列：并发上限、`job_id` 幂等、暂停/恢复/取消、事件、**带版本字段的下载记录**、
-    重启对账续传、引擎选择（留在组件内部）；
+    引擎选择（留在组件内部）；version 1 的未完成状态重启恢复由 1.5.2 增补；
   - **大小探测**：`expect_size` 缺省时自动问 CDN（`HEAD`，失败退回 1 字节 `Range`），
     于是媒体下载也做得到完整性校验。实测：码率估算会差 5 倍，问才是对的；
   - 爬取调度：候选清单 + 策略参数 + `done_reason`（时间轴推进为主判据）。
@@ -158,8 +171,8 @@
 - 脚本：`script/smoke.sh`（一条命令验证双形态 + 端到端 + 无残留进程）、
   `script/redact_fixtures.py`（**自带四条事后断言**）、`script/package.sh`、
   `script/cdylib_check.c`。
-- CI：`fmt + clippy -D warnings + test` + cdylib 的 dlopen 验证。**初版按三平台规划且从未实跑**；
-  现已收敛为 **macOS 单平台**（见 ADR-038 与上文 [未发布] 的「变更」）。
+- CI：`fmt + clippy -D warnings + test` + cdylib 的 dlopen 验证。初版曾规划三平台，
+  后按 ADR-038 收敛为 macOS；macOS CI 已运行。
 
 ### 安全 / 隐私
 - 凭据只进不出：不落盘、不打日志、不回传；`Debug` 被手工脱敏。
@@ -170,7 +183,7 @@
 - `crawl.run` 是"跑到停为止再返回"（受 `max_pages` 约束）；长爬取请用小页数反复调用。
 - `dl.events` 用游标轮询取增量，不是推送流（三种传输行为一致，见 ADR-029）。
 - 只支持 **Aria2Next**，不支持上游 aria2（选项集与行为不同，见 `NOTICE`）。
-- 爬取候选里的 `size_hint` 恒为 `null`（GraphQL 的 media 对象不带大小，
+- 爬取候选里的 `size_hint` 无值时省略（GraphQL 的 media 对象不带大小，
   而爬取阶段逐个探测会白白多出 N 次请求）。**真实大小由下载队列在下载前探测**，
   所以媒体下载的完整性校验照常成立。
 - Windows / Linux 的 CI 尚未实跑验证（本机只有 macOS）。

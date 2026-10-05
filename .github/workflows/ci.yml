@@ -7,9 +7,9 @@ name: CI
 #   ③ 冒烟脚本自己断言"无残留子进程"；
 #   ④ 那个**只经契约**的 CLI 也要能跑通（它是"外壳的替身"）。
 #
-# 为什么不再放 Linux/Windows 的格子：它们**没有真实消费方**，跑起来的绿是假的覆盖率，
-# 比没有更坏（ADR-038）。跨端靠的是代码级纪律——不引入 native-tls、不用 Apple 专有框架、
-# 路径不假设 POSIX——那些仍然有效，且由 clippy 与测试守着。
+# Linux/Windows 仍没有真实消费方，不加入会造成假覆盖的格子（ADR-038）。Android 是新增的
+# 真实打包目标；其 job 只验证 NDK 交叉链接、ELF ABI/PIE/16 KiB 对齐与产物布局，不代替
+# Android 外壳验收，也不声称运行 Android 端到端测试。
 #
 # 需要知道的取舍：
 # - **Aria2Next 的 E2E 在 CI 上默认会"大声跳过"**（那个二进制不随仓库走）。
@@ -113,3 +113,42 @@ jobs:
 
       - name: 打包产物自检（ad-hoc 签名 + dlopen）
         run: ./script/package.sh
+
+  android-native:
+    name: Android native package (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 Android Rust targets 与锁定依赖
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo fetch --locked
+
+      - name: 安装 Android NDK 27.3.13750724
+        uses: android-actions/setup-android@v3
+      - name: 安装指定 NDK
+        run: |
+          sdkmanager "ndk;27.3.13750724"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+
+      - name: 构建、验证并打包 Android native libraries
+        env:
+          RUSTFLAGS: -D warnings
+        run: ./script/android-build.sh "${{ matrix.abi }}"
+
+      - name: 收录 Android 包
+        uses: actions/upload-artifact@v4
+        with:
+          name: xspiderd-android-${{ matrix.abi }}
+          path: |
+            dist/xspiderd-*-android-${{ matrix.abi }}.tar.gz
+            dist/xspiderd-*-android-${{ matrix.abi }}.tar.gz.sha256
+          if-no-files-found: error

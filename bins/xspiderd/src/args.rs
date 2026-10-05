@@ -44,7 +44,7 @@ xspiderd —— X-Spider sidecar（把 xspider-ffi 的能力包成本地 JSON-RP
   --port <N>            监听端口；0 = 随机端口（默认）
   --stdio               改用 stdin/stdout 的 JSON Lines 协议（每行一个请求）
   --state-dir <DIR>     实例状态目录；**同时决定下载记录路径**（<DIR>/downloads.json）
-                        与单实例锁。优先于 XSPIDER_STATE_DIR（没有它时锁也不启用）
+                        与单实例锁。优先于 XSPIDER_STATE_DIR（环境变量指定目录时同样启用锁）
   --fixture-dir <DIR>   【测试专用】从 fixture 回放，不发真实网络请求
   --token <TOKEN>       指定鉴权 token（默认随机生成；仅测试需要指定）
   -h, --help            显示本帮助
@@ -53,7 +53,7 @@ xspiderd —— X-Spider sidecar（把 xspider-ffi 的能力包成本地 JSON-RP
 握手：
   `--port 0` 时会在 **stdout** 打印一行 `ready {\"port\":N,\"token\":\"...\",\"version\":\"...\"}`，
   外壳读这一行即完成握手。日志一律走 stderr，stdout 只用于这一行
-  （`--stdio` 模式下 stdout 只走 JSON Lines，不再打印 ready 行）。
+  （`--stdio` 模式下 stdout 只走 JSON Lines，ready 行在 stderr，无 port/token）。
 
 调试：
   curl -s localhost:<port> -H 'X-XSpider-Token: <token>' \\

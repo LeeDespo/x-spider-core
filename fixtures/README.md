@@ -1,105 +1,118 @@
 # fixtures —— 本仓库最重要的测试资产
 
-> 铁律（`docs/04-TESTING-AND-FIXTURES.md` §2.1）：**fixture 必须是真实抓到的响应**，
-> 不许手写 JSON 冒充。手写的样本只能证明"你按自己以为的格式解析正确"，
-> X 改字段时它不会红——那正是「用户先发现问题」的根因。
+> HTTP fixture 必须来自真实响应并经过脱敏，不许手写 JSON 冒充。签名测试另有从真实页面
+> 提取的 `xclid/page_artifacts.json` 原料；它不是 HTTP 响应 fixture。
 
-目录约定：
+## 当前目录与覆盖
 
-```
+```text
 fixtures/
-├── README.md                       # 本文件
-├── user_by_screen_name/            # fetch.get_user 的真实响应
-│   ├── normal.json                 # 正常用户
-│   ├── not_found.json              # 用户不存在
-│   ├── unauthorized.json           # 未带凭据
-│   └── raw/                        # 录制原始响应（.gitignore，不入库）
+├── user_by_screen_name/
+│   ├── normal.json
+│   ├── not_found.json
+│   └── unauthorized.json
+├── user_medias/                 # page1.json、page2.json（首页与翻页）
+├── user_tweets/                 # page1.json
+├── tweet_detail/                # with_replies.json
+├── search_timeline/             # media_only.json、query_id_source.json
+├── home_timeline/               # for_you.json、following.json
+├── following/                   # page1.json
 └── xclid/
-    └── page_artifacts.json         # 从真实登录态页面抠出的签名原料
+    └── page_artifacts.json      # 页面签名原料，不是 HTTP fixture
 ```
 
-## 怎么产生（两步，不要省）
+`search_timeline/query_id_source.json` 保存真实 bundle 中锚定到 `SearchTimeline` 的片段，
+用于 queryId 自愈测试；它没有 `response` 字段，因此回放加载器会跳过它。其余端点目录中的
+JSON 是脱敏后的真实 HTTP 响应。原始录制只放在各端点的 `raw/` 子目录，不纳入 Git，
+回放加载器也会跳过 `raw/`。
+
+| 端点/资产 | 已入库的真实样本 | 覆盖说明 |
+|---|---|---|
+| `user_by_screen_name` | `normal`、`not_found`、`unauthorized` | 正常、HTTP 200 空 data、匿名请求 HTTP 403 空响应体 |
+| `user_medias` | `page1`、`page2` | 首页与带 cursor 的第二页 |
+| `user_tweets` | `page1` | 含媒体的推文时间线首页 |
+| `tweet_detail` | `with_replies` | 推文详情与回复树 |
+| `search_timeline` | `media_only`、`query_id_source` | 搜索响应；另有真实 bundle queryId 原料 |
+| `home_timeline` | `for_you`、`following` | 两种 operation 各一页 |
+| `following` | `page1` | 关注列表首页 |
+| `xclid` | `page_artifacts` | 从真实登录态页面提取的签名密钥/动画原料 |
+
+这份覆盖表描述当前资产，不代表每个端点都具备相同的异常场景。当前没有真实 429 或字段改名
+响应；只有确实采集到并脱敏后才增加这些样本。
+
+## 录制与脱敏
+
+录制需要用户主动提供的凭据和可用网络。命令由 `#[ignore]` 测试门控；默认测试不会出网。
 
 ```bash
 export XSPIDER_LIVE=1
-export XSPIDER_COOKIE='...'                    # 只进不出：不写进文件、不打日志
-export XSPIDER_PROXY=http://127.0.0.1:17890    # 需要代理时
+export XSPIDER_COOKIE='auth_token=...; ct0=...'  # 只进不出，不写文件、不打日志
+export XSPIDER_PROXY=http://127.0.0.1:17890     # 需要代理时
+export XSPIDER_RECORD_SCREEN_NAME=tesla
 
-# 1. 录制：把**原始**响应落到 <endpoint>/raw/（已 gitignore）
-cargo test -p xspider-fetch --test record_live -- --ignored --nocapture
-cargo test -p xspider-core  --lib -- --ignored --nocapture record_xclid_page
+# 录制用户与时间线端点，raw 写入 fixtures/<endpoint>/raw/<scenario>.json
+~/.cargo/bin/cargo test -p xspider-fetch --test record_live --offline -- --ignored --nocapture
 
-# 2. 脱敏：raw/ → 可入库的 fixture（脚本自带"原始个人数据不得残留"的自检）
+# 更新 queryId 的真实 bundle 原料
+~/.cargo/bin/cargo test -p xspider-fetch --test record_live --offline -- --ignored --nocapture record_search_query_id_source
+~/.cargo/bin/cargo test -p xspider-core --lib --offline -- --ignored --nocapture record_xclid_page
+
+# raw/ → 可入库的脱敏 fixture；脚本含四条事后断言
 python3 script/redact_fixtures.py
 ```
 
-为什么分两步：录制保证**真实性**，脱敏脚本保证**不含个人数据**，
-而脱敏规则是可审计的（`docs/04` §2.1 那六条一一对应）。合起来才同时满足两个要求。
+`record_live` 会把抓取响应写入 `fixtures/<endpoint>/raw/`；脱敏脚本按 `endpoint` 与 `scenario`
+写回对应端点目录。canary 失败时保存的 `field_changed_<日期>.json` 是未脱敏原料，当前由 canary
+直接写在端点目录；要入库前先人工核对并补齐正确的 `match_hint`，再移入 `raw/` 交给脱敏脚本。
+不要直接提交 canary 原始文件。
 
-回放时：`--fixture-dir fixtures`（sidecar）或 `XSPIDER_FIXTURE_DIR=fixtures`（库形态 / 测试）。
+回放使用 sidecar 的 `--fixture-dir fixtures`，或库形态的 `XSPIDER_FIXTURE_DIR=fixtures`。
+可用消费方冒烟命令检查离线链路：
 
-## 每条 fixture 的结构
+```bash
+~/.cargo/bin/cargo run -p xspider-cli --offline -- --screen-name demo_user --fixture-dir fixtures --dry-run
+```
+
+## 每条 HTTP fixture 的结构
 
 ```json
 {
   "endpoint": "user_by_screen_name",
   "scenario": "normal",
   "captured_at": "2026-10-01",
-  "match": { "method": "GET", "operation": "UserByScreenName", "screen_name": "demo_user", "auth": "valid" },
-  "response": { "status": 200, "headers": { ... }, "body": { ... } }
+  "match": {
+    "method": "GET",
+    "operation": "UserByScreenName",
+    "screen_name": "demo_user",
+    "auth": "valid"
+  },
+  "response": { "status": 200, "headers": { "...": "..." }, "body": { "...": "..." } }
 }
 ```
 
-- `response` 部分**原样保存**上游的响应（body 按原始键序，便于与真实响应直接 diff）；
-- `match` 是**回放路由条件**，用来决定"哪个请求命中哪条样本"。
-  `auth` 三态：`valid`（必须带凭据）/ `none`（必须不带）/ `any`。
-  具体度打分：`screen_name` 命中 +4、`operation` +2、`auth` +2、`method` +1，最高者胜。
-  这样 `normal` 会赢过"只约束 operation"的通配样本。
-- `not_found` / `unauthorized` **刻意不按 screen_name 匹配**：录制时用的用户名是一次性的
-  （一个不存在的用户名 / 未登录），脱敏后没有稳定值可匹配。
+- `response.body` 保留真实响应结构；个人数据与长数字 id 在脱敏时替换，键序保留以便 diff。
+- `match` 是请求路由条件：`auth` 可为 `valid`、`none` 或 `any`；分页端点可用 `cursor: absent` /
+  `cursor: present` 区分首页和翻页。
+- 路由采用具体度打分：`cursor` 命中 **+8**、`screen_name` **+4**、`operation` **+2**、`auth` **+2**、
+  `method` **+1**；条件不匹配的样本不参与，分数最高者获选。没有可解析 cursor 的请求不会命中
+  带 cursor 条件的样本。
+- `not_found` 与 `unauthorized` 不绑定录制时的一次性用户名；`normal` 会保留脱敏后的
+  `screen_name` 条件，避免通配样本意外吞掉正常请求。
 
-## 当前覆盖度
+## 有意留空的场景
 
-| 场景 | 状态 | 说明 |
-|---|---|---|
-| 正常 | ✅ 真实 | `normal.json`，HTTP 200 |
-| 用户不存在 | ✅ 真实 | `not_found.json`，**HTTP 200 + `{"data":{}}`**——没有 `user`、也没有 `errors[]` |
-| 未授权 | ✅ 真实 | `unauthorized.json`，**HTTP 403 且响应体为空** |
-| 限流 429 | ❌ **未录，且是有意不录** | 见下 |
-| 字段改名（改版） | ❌ 未录 | 只有真的遇到 X 改版时才会产生，不能凭空造 |
+- **真实 429：未录，且有意不通过耗尽账号配额来制造。** 配额响应处理由限流单元测试覆盖；下载
+  HTTP E2E 使用本地 server 验证 HTTP 状态处理。这些测试不是 X 响应 fixture。
+- **字段改名：未录。** 只有 X 真实改版、canary 留下原始响应后才加入；不手写伪造改版样本。
+- **未授权真实响应只在 `user_by_screen_name` 记录。** 目前其余端点没有对应匿名真实样本。
 
-### 为什么没有 429 样本
+真实响应头中的 `x-rate-limit-limit` / `x-rate-limit-remaining` / `x-rate-limit-reset` 留在 fixture 中，
+供排查与后续评估使用；当前契约没有把它们映射到 `net.status`。
 
-要拿到一条**真实**的 429，必须先把账号打进限流。那是拿使用者的账号配额
-去换一条测试数据——**代价不对等**，而且与「定位为个人自用、授权账号范围内的工具」
-（AGENTS.md「许可证与合规」）相冲突。
+## 脱敏纪律
 
-替代方案（按优先级）：
-
-1. **用实测的响应头驱动**：真实响应里 X 会返回
-   `x-rate-limit-limit / x-rate-limit-remaining / x-rate-limit-reset`
-   （已留档在 `normal.json` 的 headers 里）。M1 可以据此做**主动**限流，
-   而不必等 429 出现。
-2. 429 的处理逻辑用**单元测试**钉住（`crates/xspider-core/src/ratelimit.rs` 已经覆盖：
-   冷却生效、快速失败、退避放大、成功复位、上限封顶、以及"网络异常不留下粘性状态"）。
-3. 真到了需要 429 样本的时候，用**本地 HTTP fixture server** 造一个 429 响应
-   ——那属于"下载 E2E"层（`docs/04` §5），不是 X 的真实样本，因此**不许**放进本目录
-   冒充真实响应。
-
-### 为什么 xclid 只存"原料"而不存整页 HTML
-
-`xclid/page_artifacts.json` 存的是从真实登录态页面**抠出来的**东西：
-站点验证密钥（base64 与其解码字节）、4 条 SVG 动画路径、脚本 URL 清单、
-签名脚本里的动画索引。它让 `animKey` 的计算能在离线测试里被钉住。
-
-不存整页 HTML 的理由：那是一个 1MB 级、随改版天天变的 minified 大块，
-对解析覆盖率的额外价值为零（我们并不解析整页，只抠这几个点），
-而它会让 fixture 目录无法 review。这份"原料"是**真实数据的投影**，不是手写样本。
-
-## 纪律
-
-- **不删字段**——删字段等于降低解析覆盖率；
-- 数组裁到 3 条以内，但**游标字段原样保留**（它才是分页语义的关键）；
-- 媒体 URL 保留 host、路径换成假名；**不要把真实 URL 提交进仓库**；
-- 凭据（cookie / token / 事务 id）整段换成 `REDACTED`；
-- `raw/` **永远不进仓库**（已在 `.gitignore`）。
+- 不删字段；删字段会降低解析覆盖率。
+- 数组裁到最多 3 条，但带 cursor 的条目必须保留；分页游标本身不改。
+- 数字 id 按原值映射为互不相同的假数字；任何位置出现的长数字串都要替换。
+- 媒体 URL 保留 host、路径替换为假值；cookie、token、事务 id 不得保留。
+- 先看脚本自检结果，再 review 输出。原始个人数据、残留长数字串或映射冲突任一出现，都不得入库。

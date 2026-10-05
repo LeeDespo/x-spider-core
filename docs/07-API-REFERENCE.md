@@ -117,27 +117,35 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 
 必须遵守的六条：
 
-1. **用 `--port 0` + 读 ready 行**拿 `port` / `token` / `version`。不要用固定端口——
+1. **HTTP 形态**用 `--port 0` + 读 stdout ready 行拿 `port` / `token` / `version`。不要用固定端口——
    多实例（App + CLI + 别的工具）会互踩；
 2. **`token` 每次运行都不同**，放在 `X-XSpider-Token` 头里。它不是身份，是"本机别的进程也别乱调"。
    不要打日志；
 3. **stdout 只有 ready 那一行**：别把别的输出混进去，也不要依赖 stderr 的解析；
-4. **退出时先 `system.shutdown`**（优雅：落盘状态、结束后端子进程），5 秒没退再 `kill`。
-   只 kill 的话，已经写下的下载记录可能来不及落盘（**未完成任务的断点目前不会落盘**，见 §2.2）；
-5. **多实例各自独立的 `--state-dir`**：`--state-dir` 既是**单实例锁**目录，也决定
-   **下载记录**路径；`XSPIDER_STATE_DIR` 只决定下载记录（**`--state-dir` 优先**）。
-   多实例必须各不相同，共用会互相踩；
+4. **退出时先 `system.shutdown`**（优雅：落盘状态、结束后端子进程），5 秒没退再 `kill`；
+5. **多实例各自独立的 state-dir**：`--state-dir` 与 `XSPIDER_STATE_DIR` 都会取得
+   **sidecar 单实例锁**并决定下载记录路径；同时设置时 flag 优先。多实例必须各不相同；
 6. **组件自带父进程看门狗**：外壳被强杀（SIGKILL、调试器停进程、测试宿主被收走）时，
    `xspiderd` 会自己退出，不留孤儿。但这只是兜底——正常路径仍应显式关停。
+
+Unix sidecar 使用内核 `flock`；进程退出时由内核释放锁。锁文件保留以稳定 inode，文件仍存在
+不代表实例正在运行。不要依赖 PATH 上的 `kill` 探测，也不要以删除锁文件作为释放锁的方式。
+
+### 2.1a stdio 形态
+
+`xspiderd --stdio` 不使用 HTTP 形态的 ready 握手：启动诊断 ready JSON 写到 **stderr**，
+其中不含 `port` 或 `token`；**stdout 从头到尾只承载 JSON Lines**。每行一个完整请求、
+按行返回响应，stdio 服务逐行串行处理。stdio 管道是父子进程间的私有通道，不使用
+`X-XSpider-Token`。HTTP 形态的 stdout/token 规则不适用于此模式。
 
 ### 2.2 崩溃自愈
 
 `xspiderd` 挂了就重起一个，然后用 `dl.list()` 与外壳自己的记录**对账**。
 
-> ⚠️ **已知缺口**：队列虽然实现了"从记录恢复未完成任务"（`load_records`），
-> 但**当前只有已完成的任务才会落记录**——未完成 / 暂停 / 失败的断点不写盘，
-> 所以"重启后续传未完成任务"**还没有生效**（记录目录与 `--state-dir` 的关系见 §2.4；
-> `docs/ROADMAP.md` 风险台账）。
+启用持久化目录后，version 1 下载记录会保存任务状态并在启动时恢复：`waiting` / `active`
+恢复为 `waiting`，`paused` 保持暂停，`error`（包括取消）保持错误且不会自动重试；
+完成记录继续用于幂等判断。外壳应以 `dl.list()` 对账，并按产品启动策略暂停恢复出的等待任务。
+取消任务不会因重启而复活。记录格式 version 1 保持可读。
 
 ### 2.3 平台注意（macOS 实测结论）
 
@@ -155,8 +163,9 @@ xspiderd --port 0                        # 绑定随机端口，stdout 打印一
 |---|---|
 | `XSPIDER_COOKIE` | 启动时注入 cookie（等价于 `auth.set_cookie`）。**别写进文件** |
 | `XSPIDER_PROXY` | 启动时的代理（等价于 `net.set_proxy {url}`） |
-| `XSPIDER_STATE_DIR` | 下载记录目录（`--state-dir` 也能决定它，**flag 优先**）。**它不启用单实例锁**——锁只由 `--state-dir` 触发。多实例必须各不相同 |
+| `XSPIDER_STATE_DIR` | 下载记录目录（`--state-dir` 也能决定它，**flag 优先**）。同时启用 sidecar 单实例锁。多实例必须各不相同 |
 | `XSPIDER_ARIA2_PATH` | Aria2Next 二进制路径。不配就只用内置 HTTP 后端（少多连接） |
+| `XSPIDER_ARIA2_DIR` | Aria2Next 工作目录；未设置时使用平台默认临时目录 |
 | `XSPIDER_PROBE_SIZE` | `0` / `false` / `off` = 不自动探测媒体大小（省 CDN 请求，代价是完整性只按"未知"处理） |
 | `XSPIDER_FIXTURE_DIR` | **测试专用**：从 fixture 回放，不发任何真实网络请求 |
 | `XSPIDER_LOG` | 日志级别（`debug` / `info` / `warn`）。日志一律走 **stderr** |
@@ -184,6 +193,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 约定：**「必填」列为 `是` 的字段，缺了会在发请求之前就被拒**，错误里会点名是哪个字段。
 所有 ID 都是**字符串**（数字 id 超出 f64 精度，当数字传会丢精度）。
 
+<a id="methods-system"></a>
 ### 4.1 系统（`system.*`）
 
 #### `system.version` — 握手
@@ -217,6 +227,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 
 ---
 
+<a id="methods-auth-network"></a>
 ### 4.2 凭据与网络（`auth.*` / `net.*`）
 
 #### `auth.set_cookie` — 注入凭据
@@ -306,6 +317,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 
 ---
 
+<a id="methods-fetch"></a>
 ### 4.3 取数（`fetch.*`）
 
 **分页统一形状**：`{ items: [...], cursor?, end }`。
@@ -426,6 +438,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 
 ---
 
+<a id="methods-download"></a>
 ### 4.4 下载（`dl.*`）
 
 #### `dl.enqueue` — 入队
@@ -481,11 +494,12 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | method | 语义 |
 |---|---|
 | `dl.pause` | **保留断点**，`dl.resume` 会从断点接着下 |
-| `dl.resume` | 恢复。**对 `paused` 与 `error` 都有效**；只有 `complete` 会被拒 |
+| `dl.resume` | 对 `waiting` / `active` 保持成功但不重复派发；恢复 `paused` 与 `error`（包括取消完成后的 `error`）；拒绝 `complete` |
 | `dl.cancel` | **丢弃断点**并清掉临时文件（目标目录保持干净） |
 
-- 三者对未知 `job_id` 都返回 `not_found`；对已 `complete` 的任务，pause/resume/cancel 都会被拒
-  （`invalid_request`）；
+- 三者对未知 `job_id` 都返回 `not_found`；对已 `complete` 的任务都被拒（`invalid_request`）。
+  对 `error`：`pause` 被拒，`resume` 可显式重试，`cancel` 可将任务标为已取消；
+  取消清理尚未完成时，`resume` 会暂时被拒以避免新旧清理互相覆盖；
 - 取消是**异步**的：在飞的任务由"真正停下来的那一刻"落终态，所以取消后立刻查
   `dl.status` 可能仍是 `active`——这不是没生效。
 
@@ -521,6 +535,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 
 ---
 
+<a id="methods-crawl"></a>
 ### 4.5 爬取（`crawl.run`）
 
 跑一轮爬取循环，**产出候选清单**（下不下、叫什么名、放哪儿由外壳决定）。
@@ -549,21 +564,23 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `strategy.limits.page_throttle_ms` | 否 | 页间节流 |
 | `strategy.limits.max_pages` | 否 | 本轮最多翻几页 |
 | `strategy.limits.empty_page_limit` | 否 | **辅助**上限，默认 5（别当主终止判据） |
-| `strategy.limits.stop_when_older_than` | 否 | 早于这个时间就不再看 |
+| `strategy.limits.stop_when_older_than` | 否 | 早于这个时间就不再看；触发时 `done_reason` 同样是 `time_progressed` |
 
 **出参**
 
 ```json
 { "done_reason": "time_progressed",
   "candidates": [ { "key": "…", "post_id": "…", "media_id": "…", "kind": "video",
-                    "url": "https://…", "ext": "mp4", "size_hint": null,
+                    "url": "https://…", "ext": "mp4",
                     "created_at": "2026-09-25T01:33:31Z", "screen_name": "tesla",
                     "day": "2026-09-25" } ],
   "posts": [ { …完整的 post… } ],
   "pages": 3, "raw_items": 60,
   "dropped": { "dropped_duplicate": 4, "dropped_by_date": 12, "dropped_by_type": 3,
                "dropped_no_media": 20, "dropped_name": 0 },
-  "next_cursor": "…", "seq": 12, "events": [ … ] }
+  "next_cursor": "…", "seq": 12,
+  "events": [{"seq": 10, "event": {"kind": "page", "index": 1,
+               "raw_count": 20, "kept_count": 8, "cursor": "…", "oldest_at": "…"}}] }
 ```
 
 | 字段 | 说明 |
@@ -575,7 +592,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `raw_items` | 服务端给的原始条目数（**到底判据只看它**，不看筛选后的） |
 | `dropped` | 各类丢弃计数，排查"这次为什么没东西"用 |
 | `next_cursor` | 下次从哪儿继续（`exhausted` 时不出现） |
-| `seq` / `events` | **本次调用**的爬取事件；`seq` 进程内单调、不回退（形状同下载事件，schema 里未逐字段约束） |
+| `seq` / `events` | **本次调用**的爬取事件；`seq` 进程内单调、不回退。每项形如 `{seq, event}`；`event.kind` 为 `page`、`candidates` 或 `done`，字段形状见 schema 与 `CONTRACT.md` §4.14 |
 
 | `done_reason` | 含义 |
 |---|---|
@@ -587,7 +604,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `page_limit_reached` | 触到 `max_pages`（**不是**服务端到底） |
 | `cancelled` / `error` | 取消 / 出错 |
 
-- **`size_hint` 恒为 `null`**：GraphQL 的 media 对象里没有字节数，而爬取阶段逐个探测会白白多出
+- `size_hint` 当前缺省省略：GraphQL 的 media 对象里没有字节数，而爬取阶段逐个探测会白白多出
   N 次请求。真实大小由下载队列在下载前探测；
 - 组件**只管筛出候选**，不下不命名；外壳拿到候选后自己决定，再调 `dl.enqueue`
   （两个组件不直接对接）；
@@ -740,7 +757,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 | `job_id` | string | 是 | 外壳生成的幂等键 |
 | `state` | string | 是 | `waiting` \| `active` \| `paused` \| `error` \| `complete` |
 | `done` / `total` | integer | 是 | 已下 / 总字节数（未知时为 0） |
-| `reason` | string | 否 | 结束原因短标签：`cancelled` / `not_found` / `integrity_failed` / `truncated` / `transport` / `disk_full` / `upstream` / `invalid` … **按它判断，不要按文案** |
+| `reason` | string | 否 | 结束原因短标签：`cancelled` / `auth_required` / `not_found` / `integrity_failed` / `truncated` / `transport` / `disk_full` / `permission_denied` / `upstream` / `invalid` … I/O 错误使用其 kind 值。**按它判断，不要按文案** |
 | `error` | `error` | 否 | 结构化错误（见 §6） |
 | `tag` | string | 否 | 外壳放的不透明标记 |
 | `dest_path` | string | 否 | 目标路径 |
@@ -767,13 +784,13 @@ void  xspider_free(char* ptr);                                // 释放上面两
 
 ```json
 { "key": "…", "post_id": "…", "media_id": "…", "kind": "video",
-  "url": "https://…", "ext": "mp4", "size_hint": null,
+  "url": "https://…", "ext": "mp4",
   "created_at": "2026-09-25T01:33:31Z", "screen_name": "tesla", "day": "2026-09-25" }
 ```
 
 **必出现**：`key` `post_id` `media_id` `kind` `url` `ext`。
 `key` 是去重键（默认媒体 id）；`day` 是推文所在日期（`YYYY-MM-DD`，**UTC**），
-按天分目录时用它。`size_hint` 目前恒为 `null`（见 §4.5）。
+按天分目录时用它。`size_hint` 当前无值时省略（见 §4.5）。
 
 ---
 
@@ -888,13 +905,12 @@ crawl.run { source: "medias", user_id, strategy: { since, until, limits: { max_p
 
 | 边界 | 说明 |
 |---|---|
-| **没有推送式事件流** | JSON-RPC 与 C ABI 都不支持流，所以统一用"带游标的增量轮询"（`dl.events`）。进程内形态另有 `subscribe()`。见 ADR-029 |
+| **没有推送式事件流** | sidecar 与 C ABI 统一用带游标的增量轮询（`dl.events`）。Rust 队列内部有 `subscribe()`，但它不是 C ABI / JSON-RPC method，也不属于对外接口。见 ADR-029 |
 | **`crawl.run` 是"跑到停为止"** | 受 `max_pages` 约束；长爬取请用小页数反复调用 |
-| **`crawl` 的 `size_hint` 恒为 `null`** | GraphQL 不提供字节数；真实大小由下载队列在下载前探测 |
+| **`crawl` 的 `size_hint` 缺省省略** | GraphQL 不提供字节数；真实大小由下载队列在下载前探测 |
 | **`net.set_limits.cdn_concurrency` 只在队列创建时生效** | 信号量不能缩容。要"运行中调并发"需要另外的接口 |
-| **`dl.plan` / `dl.report` 尚未实现** | `host` 逃生舱（iOS 后台 `URLSession` 一类平台强约束），已登记形状，调用会得到 `invalid_request` |
+| **`dl.plan` / `dl.report` 尚未实现** | `host` 只是早期架构名称，能力、形状和平台策略尚未设计；它们不是当前 26 个 method，调用会得到 `invalid_request` |
 | **只有 Aria2Next，不支持上游 aria2** | 选项集与行为不同，见 [`NOTICE`](../NOTICE) |
-| **`crawl.run` 的事件形状未逐字段约束** | schema 里 `events` 是通用对象数组；`dl.events` 的事件是逐字段约束的 |
 | **`crawl.run` 取消有两种形态** | 页边界察觉取消 → `done_reason:"cancelled"`；取页在飞行中被取消 → `error.code:"cancelled"`。都按"调用方取消"处理（§4.5） |
-| **未完成任务的断点不落盘** | 当前只有已完成任务写下载记录，所以"重启续传未完成任务"尚未生效（§2.2） |
+| **重启不会自动重试错误或取消任务** | `error`（包括取消）保留为错误；用户可在取消清理完成后显式调用 `dl.resume` |
 | **完整性只管"字节对不对"** | "这个文件真的是图片/mp4 吗"（魔数、HTML 误页）由外壳负责——分工见 `docs/06` §5 第 4 条 |

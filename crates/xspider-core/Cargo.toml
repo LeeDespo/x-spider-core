@@ -17,3 +17,9 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
+
+# Android system certificates are not exposed through rustls-native-certs on
+# Android. Keep the workspace's native-root policy for existing targets and add
+# Mozilla's bundled roots only to Android builds.
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { workspace = true, features = ["rustls-tls-webpki-roots"] }

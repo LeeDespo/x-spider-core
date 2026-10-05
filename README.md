@@ -8,8 +8,12 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 
 预期消费方：`x-spider-mac`（macOS SwiftUI），以及将来可能出现的 Windows / Linux 外壳。
 
-> **状态：M0–M4 已完成**（2026-10-01）。7 个取数端点 + 两个下载后端（内置 HTTP / **Aria2Next**）
-> + 下载队列（幂等 / 暂停恢复 / 重启续传）+ 爬取调度（候选清单 + `done_reason`），
+> **状态：核心 M0–M4 已完成**（2026-10-01）；当前契约为 1.5.2 PATCH。
+> 下载队列支持持久化状态恢复：Waiting/Active 重启后变为 Waiting，Paused 保持暂停，
+> Error（包括取消）不会自动重试；取消任务不会自动复活，用户可在清理结束后显式恢复。
+> Android NDK 构建、sidecar 打包与构建检查已实现；模拟器/设备、Aria2Next Android 二进制与 live 网络验收状态见 [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md)。
+> 7 个取数端点 + 两个下载后端（内置 HTTP / **Aria2Next**）
+> + 下载队列（幂等 / 暂停恢复 / 重启状态恢复）+ 爬取调度（候选清单 + `done_reason`），
 > 全部有真实响应 fixture 或真二进制 E2E 覆盖；另有一个**只经契约**的 CLI 当第一个真实消费方
 > （`bins/xspider-cli`）。进度与未决见 [`docs/ROADMAP.md`](docs/ROADMAP.md) 与
 > [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md)。
@@ -104,6 +108,13 @@ cargo run -p xspider-cli -- --screen-name tesla --count 3 --out ./downloads \
 XSPIDER_ARIA2_PATH=/path/to/aria2next ./script/package.sh   # 顺带带上 Aria2Next（附 GPL-2.0 声明）
 ```
 
+Android native libraries / sidecar 构建包（需要 rustup 与 NDK 27.3.13750724；输出不是 APK）：
+
+```bash
+export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.3.13750724"
+./script/android-build.sh
+```
+
 手动起 sidecar：
 
 ```bash
@@ -131,6 +142,8 @@ cargo run -p xspiderd -- --port 0
 | [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) | **接口清单**：26 个 method 的作用、只读/写属性，逐行链到接口参考 |
 | [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、调用时序 |
 | [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力对照**：组件 ↔ `x-spider-mac` 的逐项映射、分工与缺口 |
+| [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) | Android NDK 构建、sidecar 部署与外壳接入边界；列出尚未完成的设备验收 |
+| [`docs/11-REVIEW-RESOLUTION.md`](docs/11-REVIEW-RESOLUTION.md) | 本轮审阅发现的归并处置与未验收边界 |
 | [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册（给具体某个外壳）：改动清单、实测记录 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 决策台账（ADR）：每条决定及其「何时该被推翻」 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 里程碑、实际进度、风险台账 |

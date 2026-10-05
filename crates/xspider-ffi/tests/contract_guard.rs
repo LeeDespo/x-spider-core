@@ -551,3 +551,61 @@ fn request_and_envelope_shapes_are_declared() {
         .unwrap()
         .contains(&Value::String("error".into())));
 }
+
+#[test]
+fn schema_and_contract_versions_match_the_runtime() {
+    let schema = read_json("contract/xspider.schema.json");
+    assert_eq!(
+        schema["title"],
+        format!("X-Spider 契约 {}", xspider_core::CONTRACT_VERSION)
+    );
+    assert!(read_text("docs/CONTRACT.md")
+        .contains(&format!("契约版本：**{}**", xspider_core::CONTRACT_VERSION)));
+}
+
+#[test]
+fn crawl_stats_and_event_shapes_match_the_schema() {
+    use xspider_download::{CrawlEvent, CrawlStats, DoneReason};
+    let schema = read_json("contract/xspider.schema.json");
+    let stats = serde_json::to_value(CrawlStats::default()).unwrap();
+    let actual: BTreeSet<String> = stats.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(actual, schema_properties(&schema, "crawlStats"));
+    let samples = [
+        CrawlEvent::Page {
+            index: 1,
+            raw_count: 3,
+            kept_count: 2,
+            cursor: Some("next".into()),
+            oldest_at: Some("2009-09-30T12:34:56Z".into()),
+        },
+        CrawlEvent::Candidates {
+            index: 1,
+            items: Vec::new(),
+        },
+        CrawlEvent::Done {
+            reason: DoneReason::Exhausted,
+        },
+    ];
+    for event in samples {
+        let value = serde_json::to_value(event).unwrap();
+        let branch = schema["$defs"]["crawlEvent"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["properties"]["kind"]["const"] == value["kind"])
+            .unwrap();
+        let actual: BTreeSet<String> = value.as_object().unwrap().keys().cloned().collect();
+        let declared: BTreeSet<String> = branch["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(actual, declared);
+        assert_eq!(branch["additionalProperties"], false);
+    }
+    assert_eq!(
+        schema["x-methods"]["crawl.run"]["result"]["properties"]["events"]["items"]["$ref"],
+        "#/$defs/stampedCrawlEvent"
+    );
+}

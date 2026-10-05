@@ -107,17 +107,27 @@ crawl.run {
   strategy: { since?, until?, media_types?, wanted_keys?,
               limits: { page_size?, page_throttle_ms?, max_pages?,
                         empty_page_limit?, stop_when_older_than? } }
-} -> { done_reason, candidates: [ { post_id, media_id, url, ext, size_hint,
-                                    created_at, screen_name, day } ],
+} -> { done_reason,
+       candidates: [ { key, post_id, media_id, kind, url, ext, size_hint,
+                       created_at?, screen_name, day } ],
+       posts: [ /* 本轮保留的完整 post DTO，与 candidates[] 对应 */ ],
        pages, raw_items, dropped, next_cursor?, seq, events }
 
 done_reason: exhausted | time_progressed | empty_pages | cursor_stuck
            | wanted_collected | page_limit_reached | cancelled | error
 ```
 
+`time_progressed` 由 `since` 与 `limits.stop_when_older_than` 两个时间边界触发：前者表示时间轴已
+越过请求下限，后者表示已遇到早于该阈值的推文。两者都表示本轮到达时间边界；需要区分业务原因时，
+调用方应结合自己提交的策略参数判断。
+
+契约 1.5.0 起，结果同时包含有损的 `candidates[]` 与同一批数据的完整 `posts[]`。
+外壳可用 `post_id` 将二者关联；候选提供媒体下载信息，`posts[]` 保留命名和记账需要的推文 DTO。
+
 > 实现把 §4 的「按页批量给候选」落成了**一次调用返回整轮结果**（受 `max_pages` 约束）：
 > 长爬取由外壳用小页数反复调用、用返回的 `next_cursor` 续爬。这样进度对调用方可见，
-> 也不必把长任务塞进一次请求里（推送式事件流三种形态都不支持，见 ADR-029）。
+> 也不必把长任务塞进一次请求里。下载事件也通过带游标的增量轮询读取，三种形态都没有契约级
+> 推送流（见 ADR-029）。
 
 四个要点：
 1. **`done_reason` 必须显式**——"翻到服务端尽头"与"被策略提前终止"是两种语义，
@@ -132,13 +142,13 @@ done_reason: exhausted | time_progressed | empty_pages | cursor_stuck
 > （只有宽高与视频的时长/码率），而"码率 × 时长"估出来会**差 5 倍**
 > （实测 76 MiB vs 真实 14.48 MiB，见 `docs/02` §E9）。
 > 所以爬取阶段**不做**逐个探测（一页 20 个媒体就是白白多 20 次请求），
-> `size_hint` 恒为 `null`；**真实大小由下载队列在下载前探测**
+> `size_hint` 缺省时不返回该字段；**真实大小由下载队列在下载前探测**
 > （`expect_size` 缺省时自动 `HEAD`，失败退回 1 字节 `Range`），
 > 于是完整性校验照样成立，而且引擎选择拿得到真值。
 
 ---
 
-## 5. 下载：任务归属与三种引擎后端
+## 5. 下载：任务归属与实现选项
 
 ### 5.1 任务归组件所有
 
@@ -148,7 +158,7 @@ dl.enqueue { job_id, url, dest_dir, file_name, expect_size?,
 dl.pause | resume | cancel { job_id }                          -> { ok }
 dl.status { job_id }                                           -> { state, done, total, error? }
 dl.list   {}                                                   -> { jobs[] }
-dl.events (stream)                                             -> progress | completed | failed | skipped
+dl.events {since}                                              -> {seq, events[]}（带游标的增量轮询）
 ```
 
 | 东西 | 归属 | 理由 |
@@ -165,13 +175,16 @@ dl.events (stream)                                             -> progress | com
 **两处持久化按 `job_id` join**：组件存自己的任务状态（供崩溃恢复续传），
 外壳存 `job_id → post/media` 投影（供 UI）。重启后外壳用 `dl.list()` 与自己的记录对账。
 
-### 5.2 三种引擎后端（同一套契约，能力用 `requirements` 表达）
+### 5.2 下载实现选项（契约与实现状态分开看）
 
 | 后端 | 谁搬字节 | 用途 |
 |---|---|---|
 | **`http`（内置，reqwest + Range 分片 + 续传）** | 组件自己 | **保底**：零外部依赖、跨端行为一致、离线测试的载体（本地 HTTP server 做 fixture） |
 | **`aria2`（外派进程 + JSON-RPC）** | aria2-next 进程 | 性能路径：多连接分片、成熟续传与重试 |
-| **`host`（`dl.plan` + `dl.report`）** | 外壳 | **逃生舱**：iOS 后台 `URLSession`（必须由 App 进程持有）、App Store 沙箱外壳 |
+| `host`（早期架构标签） | — | **未设计、未实现**。`dl.plan` / `dl.report` 不是当前契约 method，也没有请求/响应形状；若有真实平台需求，再另行定义 ADR 与契约。 |
+
+当前有两个已实现的下载后端：`http` 与 `aria2`。`host` 一词只保留为早期架构讨论的标签，
+不能据此推断存在外壳执行计划、回报 method 或已登记的接口形状。
 
 三条纪律：
 1. **引擎选择策略留在组件内部**（按大小/可用性/设置决定），不暴露给外壳；
@@ -207,6 +220,8 @@ upstream{status}      服务端错误（含 404 与 queryId 失效的区别，�
 parse{context}        解析失败 = X 可能改版了     → 这是最需要报警的一类
 transport{...}        网络/代理/DNS
 cancelled             调用方取消
+invalid_request       参数无效或当前未实现的 method
+internal              组件内部错误
 ```
 
 **为什么必须结构化**：一个真实的反面教材——下载侧曾用**匹配引擎输出的错误文案字符串**

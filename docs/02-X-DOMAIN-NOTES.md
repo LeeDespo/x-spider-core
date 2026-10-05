@@ -1,7 +1,8 @@
 # 02 · X 领域知识（**不要重踩**）
 
-> 这一节的内容全部来自一个已经能运行的 macOS 移植项目（源码见仓库 `x-spider-mac`）
-> 与其上游（Tauri + React 的 `MiningCattiva/x-spider`）的实测结论。
+> 这一节的内容来自 `x-spider-mac` 接入组件之前的历史实现及其上游（Tauri + React 的
+> `MiningCattiva/x-spider`）实测结论。当前 mac 外壳已改为调用组件；行为参照只看其历史或
+> `backup/pre-component-integration`，不要把当前 `TwitterAPI` 当作取数实现答案。
 > 每一条都是**真金白银的返工**换来的，照着做能省几周。
 
 ---
@@ -10,10 +11,13 @@
 
 X 的 GraphQL 端点对 `queryId` / `features` / `variables` 的格式极其敏感，分页语义也有坑。
 
-**权威参照顺序**：
-1. `x-spider-mac/src/twitter/api.ts`（上游 TypeScript 原版，GPL-3.0）——**行为权威**；
-2. `x-spider-mac/XSpiderMac/Sources/XSpiderMac/Services/TwitterAPI.swift`——Swift 实现 + 大量实测注释；
-3. `x-spider-mac/AGENTS.md` 与 `docs/DEVELOPMENT.md`——取舍与教训。
+**行为参照顺序**：
+1. `MiningCattiva/x-spider` 的上游 TypeScript 原版（GPL-3.0）；
+2. `x-spider-mac` 接入组件之前的历史实现，尤其是 `backup/pre-component-integration`；
+3. 组件内相应的 fixture、测试与踩坑记录。
+
+已接入组件的 `x-spider-mac` 当前代码主要做契约 DTO 到应用模型的映射；需要核对历史行为时，
+只读历史/备份，不修改外壳仓库，除非任务明确把它列入范围。
 
 **凡是要动请求构造或分页逻辑，先读上游对应函数，逐字对齐，再动手。**
 不要"顺手优化"请求格式——你以为的优化通常是 404 或空页的来源。
@@ -37,8 +41,8 @@ GET 一律 404。**且这个 404 与 queryId 无关**——实测新旧两个 qu
 
 **A4. `x-client-transaction-id` 需要按 X 的算法生成。**
 涉及首页抓取 + 贝塞尔曲线动画状态推导。这是最容易被忽略、也最容易因改版失效的一块：
-**单独成模块、单独测**，不要在请求组装里内联。参考
-`x-spider-mac/.../Services/XClientTransaction.swift`（约 490 行）。
+**单独成模块、单独测**，不要在请求组装里内联。参考 `x-spider-mac` 接入组件前的历史版本（现行接入分支已删除该文件）；不要依赖当前路径，
+需要核对时从 `backup/pre-component-integration` 或 Git 历史读取。
 
 **A5. headers 要与上游一致**：user-agent、`x-csrf-token`（= cookie 里的 `ct0`）、
 `x-twitter-auth-type`、`x-twitter-active-user` 等。少一个就可能 403 或返回空数据。
@@ -172,6 +176,48 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 **E5. 临时文件与目标目录**：落盘要原子（先写临时文件再 rename），
 且不能让引擎直接写目标目录（会与"用户看到半个文件"冲突）。
 
+**E6. Aria2Next 对 404 会报"成功"。**
+实测（Aria2Next 2.7.5）：`aria2.addUri` 一个不存在的 URL，`tellStatus` 返回
+`status: "complete", errorCode: "0", completedLength: "0", totalLength: "0"`，
+并在**磁盘上留下一个 0 字节文件**。
+→ 这就是 §E2 那条"不能只看引擎的结论"的现场证据。
+所以完成判据必须是**落盘字节数 + `expect_size` 校验**；
+`crates/xspider-download/tests/aria2_e2e.rs` 有一条专门的测试钉住它。
+
+**E7. Aria2Next 的 JSON-RPC 错误全是 `code: 1`。**
+`Unknown option: x` / `GID deadbeef is not found` / `Unauthorized` —— 三个完全不同的原因，
+返回的都是 `{"error":{"code":1,"message":"…"}}`。
+→ **RPC 这一层没法按码分类**，也没法按文案分类（铁律）。
+对策是把选项名在自己这边钉死（实测确认过的才用），并把 GID 记账在本地；
+对 RPC 错误一律当"后端异常"上报，`message` 只作诊断。
+
+**E8. Aria2Next 的帮助与全局选项不能证明下载任务接受某个选项。**
+`--split`、`--max-connection-per-server` 在 `--help=#all` 中看不到；全局选项 RPC 曾读到同名值，
+但那不代表它们仍是该 fork 的有效下载选项。**这两个上游选项在当前 Aria2Next 路径已退役**，
+组件使用实测有效的 `stream-max-connections`。要确认选项，验证实际 `addUri` 任务路径并检查结果，
+不能只看帮助或全局默认值。
+**E9. 媒体的字节数只有 CDN 知道；`码率 × 时长` 估出来的会差 5 倍。**
+实测（2026-10-01，真实 CDN）：
+
+| 事实 | 实测值 |
+|---|---|
+| GraphQL 的 `media` 对象里有大小吗 | **没有**。只有 `original_info`（宽高）与 `video_info`（时长/码率） |
+| 图片：`HEAD` 的 `Content-Length` | ✅ 有（`https://pbs.twimg.com/media/….jpg` → 121661） |
+| 视频：`HEAD` | ❌ 走不通（`SSL_ERROR_SYSCALL`）；**但 `Range: bytes=0-0` 稳定可用** |
+| 视频：`Range: bytes=0-0` 的 `Content-Range` | ✅ `bytes 0-0/15187101` → 精确总长 |
+| 图片尺寸参数的实际大小 | 无参数 = `?name=medium` = 121661；`?name=orig` = `?name=large` = 262165；`?name=small` = 49998 |
+| **`码率 × 时长` 的估算误差** | 选中变体 10368000 bps × 61.494 s / 8 = **79696224 字节（76 MiB）**，而**真实是 15187101 字节（14.48 MiB）** → **差 5.25 倍** |
+
+三条结论：
+1. **要精确大小就去问 CDN**：先 `HEAD`，失败退回 1 字节的 `Range`（只下载 1 个字节）；
+2. **不要拿码率估算当大小用**：码率是编码器上限，不是实际大小。拿它做"要不要外派给 aria2"
+   的分界会一路判错（76 MiB 与 14.5 MiB 落在不同的分档里）；
+3. **裸 URL 等价于 `?name=medium`（680px）**——这条与 §C6 对上了：
+   我们返回的 `url` 不带 `?name=`，实际拿到的是 680px 图；要原图得自己加 `?name=orig`。
+
+实现见 `crates/xspider-download` 的 `HttpDownloader::probe_size`：
+**队列在下载前自动探测**（调用方没给 `expect_size` 时），于是媒体下载也能做完整性校验。
+
 ## F. 与上游的对应关系（移植时按这个顺序读）
 
 | 你要实现的东西 | 先读 |
@@ -201,7 +247,8 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 **G3. 真实响应里带 `x-rate-limit-limit` / `-remaining` / `-reset`。**
 实测一次正常请求：`limit=150, remaining=148`。
 → 可以据此做**主动**限流（在配额耗尽前降速），而不是等 429 才知道。
-M1 可以考虑把这三个头接进 `net.status`。
+这些头留在真实响应与 fixture 中，当前不由 `net.status` 对外暴露；它们是历史上的主动限流线索，
+不是当前待办。若以后决定暴露，先补契约与 ADR，再改实现。
 
 **G4. `data.user.result` 里值得注意的非 `legacy` 字段。**
 - `rest_id` 在 `result` 层（不在 `legacy` 里）；
@@ -276,44 +323,3 @@ M1 可以考虑把这三个头接进 `net.status`。
 **H8. 两种主页模式是两个不同的 operation**（§B 侧记）：
 `for_you` → `HomeTimeline`，`following` → `HomeLatestTimeline`。
 它们共用同一份 `features`（与 `TweetDetail` 相同），但 queryId 与 operationName 都不同。
-
-**E6. Aria2Next 对 404 会报"成功"。**
-实测（Aria2Next 2.7.5）：`aria2.addUri` 一个不存在的 URL，`tellStatus` 返回
-`status: "complete", errorCode: "0", completedLength: "0", totalLength: "0"`，
-并在**磁盘上留下一个 0 字节文件**。
-→ 这就是 §E2 那条"不能只看引擎的结论"的现场证据。
-所以完成判据必须是**落盘字节数 + `expect_size` 校验**；
-`crates/xspider-download/tests/aria2_e2e.rs` 有一条专门的测试钉住它。
-
-**E7. Aria2Next 的 JSON-RPC 错误全是 `code: 1`。**
-`Unknown option: x` / `GID deadbeef is not found` / `Unauthorized` —— 三个完全不同的原因，
-返回的都是 `{"error":{"code":1,"message":"…"}}`。
-→ **RPC 这一层没法按码分类**，也没法按文案分类（铁律）。
-对策是把选项名在自己这边钉死（实测确认过的才用），并把 GID 记账在本地；
-对 RPC 错误一律当"后端异常"上报，`message` 只作诊断。
-
-**E8. Aria2Next 的 `--help=#all` 不完整。**
-`--split`、`--max-connection-per-server` 在帮助里**看不到**，
-但 `aria2.getGlobalOption` 读得到（值 6），也就是说它们是**可用**的。
-→ 想确认某个选项存不存在，**问运行中的实例**（`getGlobalOption`），不要看帮助。
-**E9. 媒体的字节数只有 CDN 知道；`码率 × 时长` 估出来的会差 5 倍。**
-实测（2026-10-01，真实 CDN）：
-
-| 事实 | 实测值 |
-|---|---|
-| GraphQL 的 `media` 对象里有大小吗 | **没有**。只有 `original_info`（宽高）与 `video_info`（时长/码率） |
-| 图片：`HEAD` 的 `Content-Length` | ✅ 有（`https://pbs.twimg.com/media/….jpg` → 121661） |
-| 视频：`HEAD` | ❌ 走不通（`SSL_ERROR_SYSCALL`）；**但 `Range: bytes=0-0` 稳定可用** |
-| 视频：`Range: bytes=0-0` 的 `Content-Range` | ✅ `bytes 0-0/15187101` → 精确总长 |
-| 图片尺寸参数的实际大小 | 无参数 = `?name=medium` = 121661；`?name=orig` = `?name=large` = 262165；`?name=small` = 49998 |
-| **`码率 × 时长` 的估算误差** | 选中变体 10368000 bps × 61.494 s / 8 = **79696224 字节（76 MiB）**，而**真实是 15187101 字节（14.48 MiB）** → **差 5.25 倍** |
-
-三条结论：
-1. **要精确大小就去问 CDN**：先 `HEAD`，失败退回 1 字节的 `Range`（只下载 1 个字节）；
-2. **不要拿码率估算当大小用**：码率是编码器上限，不是实际大小。拿它做"要不要外派给 aria2"
-   的分界会一路判错（76 MiB 与 14.5 MiB 落在不同的分档里）；
-3. **裸 URL 等价于 `?name=medium`（680px）**——这条与 §C6 对上了：
-   我们返回的 `url` 不带 `?name=`，实际拿到的是 680px 图；要原图得自己加 `?name=orig`。
-
-实现见 `crates/xspider-download` 的 `HttpDownloader::probe_size`：
-**队列在下载前自动探测**（调用方没给 `expect_size` 时），于是媒体下载也能做完整性校验。

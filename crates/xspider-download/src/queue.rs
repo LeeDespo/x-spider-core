@@ -23,6 +23,8 @@
 //! 由组件按大小与可用性决定派给谁。
 
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -237,7 +239,7 @@ enum CancelIntent {
     Discard,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct JobEntry {
     job: EnqueueJob,
     state: JobState,
@@ -245,6 +247,7 @@ struct JobEntry {
     total: u64,
     reason: Option<String>,
     error: Option<ErrorObject>,
+    completed_at: Option<String>,
     cancel: CancelToken,
     intent: CancelIntent,
     engine: Option<EngineChoice>,
@@ -255,6 +258,15 @@ struct JobEntry {
     /// 没有 epoch 的话，上一轮的"已取消"会把新一轮刚设好的 waiting 覆盖成 error
     /// （实现时真的踩到了，见 AGENTS.md 踩坑记录）。
     epoch: u64,
+    /// 取消请求先写盘，再中止传输；崩溃恢复据此清理断点，不能把取消变成重试。
+    cancel_requested: bool,
+    /// Whether the destination existed before this queue accepted the job. `None`
+    /// means a legacy record cannot prove ownership, so cancellation must not
+    /// remove the destination file.
+    destination_preexisting: Option<bool>,
+    /// 同一 job 的后端使用互斥门。epoch 只保护状态，不能阻止被取消的旧
+    /// HTTP/aria2 调用还在访问 `.part` 时，新一轮也开始读写它。
+    run_gate: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl JobEntry {
@@ -313,6 +325,27 @@ pub struct RecordEntry {
     pub completed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// 续传相关的全部入队参数。缺省值兼容早期 version=1 记录。
+    #[serde(default)]
+    pub requirements: Requirements,
+    #[serde(default)]
+    pub skip_if_present: bool,
+    /// 最近一次结束原因；error 状态需跨重启保留给调用方。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ErrorObject>,
+    /// 已先持久化取消请求、但进程尚未完成断点清理时为 true。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cancel_requested: bool,
+    /// Old version=1 records did not track destination ownership. Unknown files
+    /// are preserved on cancellation rather than risking deletion of user data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_preexisting: Option<bool>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// 记录文件格式。**版本字段是必需的**：格式一定会演进，没有版本就没法安全迁移。
@@ -336,6 +369,7 @@ pub struct DownloadQueue {
     /// 存在这里而不是只留在 `config` 里，是因为 `config` 在 `start` 之后不可变，
     /// 而代理会变——实测同一天内端口换了三次（`AGENTS.md` 踩坑记录 8）。
     proxy: Arc<std::sync::RwLock<ProxyConfig>>,
+    runtime: tokio::runtime::Handle,
 }
 
 impl std::fmt::Debug for DownloadQueue {
@@ -375,11 +409,12 @@ impl DownloadQueue {
             aria2,
             inner,
             proxy: Arc::new(std::sync::RwLock::new(config.proxy.clone())),
+            runtime: tokio::runtime::Handle::current(),
             config,
         };
 
         // 重启对账：把上次没下完的任务恢复成 waiting，并重新派发（续传）
-        let restored = queue.load_records();
+        let restored = queue.load_records()?;
         if restored > 0 {
             tracing::info!(count = restored, "从下载记录恢复了未完成任务");
         }
@@ -441,16 +476,8 @@ impl DownloadQueue {
         }
         let key = job.job_id.to_string();
 
-        {
-            let jobs = self.inner.jobs.lock().expect("jobs poisoned");
-            if jobs.contains_key(&key) {
-                // 幂等：跨页重复投递 / 暂停后重试 / 重启对账，三种情况都走这里
-                return Ok(AcceptedBy::AlreadyKnown);
-            }
-        }
-        // 重启之后内存里没有任务，但**记录里有**——同样要认幂等，
-        // 否则重启一次就会把整批已下 / 在下的任务重新投一遍
-        if self.record_of(&key).is_some() {
+        // 幂等检查与新记录写入在同一写锁下，避免并发重复 enqueue 覆盖任务。
+        if self.is_known(&key) {
             return Ok(AcceptedBy::AlreadyKnown);
         }
 
@@ -474,22 +501,29 @@ impl DownloadQueue {
                 let bytes = std::fs::metadata(&job.dest_path)
                     .map(|m| m.len())
                     .unwrap_or(0);
-                self.push_event(DownloadEvent::Skipped {
-                    job_id: key.clone(),
-                    reason: "already_present".to_string(),
-                });
-                self.remember(JobEntry {
+                let entry = JobEntry {
                     state: JobState::Complete,
                     done: bytes,
                     total: bytes,
                     reason: Some("skipped".to_string()),
                     error: None,
+                    completed_at: Some(xspider_core::xdate::today_utc()),
                     cancel: CancelToken::new(),
                     intent: CancelIntent::None,
                     engine: None,
                     attempts: 0,
                     epoch: 0,
+                    cancel_requested: false,
+                    destination_preexisting: Some(true),
+                    run_gate: Arc::new(tokio::sync::Mutex::new(())),
                     job: job.clone(),
+                };
+                if !insert_job_shared(&self.inner, &self.config, entry)? {
+                    return Ok(AcceptedBy::AlreadyKnown);
+                }
+                self.push_event(DownloadEvent::Skipped {
+                    job_id: key.clone(),
+                    reason: "already_present".to_string(),
                 });
                 return Ok(AcceptedBy::Skipped);
             }
@@ -501,99 +535,123 @@ impl DownloadQueue {
             total: job.expect_size.unwrap_or(0),
             reason: None,
             error: None,
+            completed_at: None,
             cancel: CancelToken::new(),
             intent: CancelIntent::None,
             engine: None,
             attempts: 0,
             epoch: 0,
+            cancel_requested: false,
+            destination_preexisting: destination_preexisting(&job.dest_path),
+            run_gate: Arc::new(tokio::sync::Mutex::new(())),
             job,
         };
         let cancel_token = entry.cancel.clone();
-        self.remember(entry);
-        self.dispatch(key, cancel_token);
+        let expected_epoch = entry.epoch;
+        if !insert_job_shared(&self.inner, &self.config, entry)? {
+            return Ok(AcceptedBy::AlreadyKnown);
+        }
+        self.dispatch(key, expected_epoch, cancel_token);
         Ok(AcceptedBy::Queued)
     }
 
     /// 暂停：**保留断点**，恢复时接着下。
     pub fn pause(&self, job_id: &str) -> Result<(), XError> {
-        let mut jobs = self.inner.jobs.lock().expect("jobs poisoned");
-        let entry = jobs
-            .get_mut(job_id)
-            .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
-        match entry.state {
-            JobState::Complete | JobState::Error => {
+        let entry = transition_job_shared(&self.inner, &self.config, job_id, None, |entry| {
+            if matches!(entry.state, JobState::Complete | JobState::Error) {
                 return Err(XError::invalid_request(format!(
                     "任务已结束（{:?}），不能暂停",
                     entry.state
                 )));
             }
-            _ => {}
-        }
-        entry.intent = CancelIntent::Pause;
-        // 标记为 Paused **同时**取消在飞传输；半成品保留（后端不删）
-        entry.state = JobState::Paused;
-        entry.epoch += 1; // 让上一轮任务的结果失效，别来覆盖 Paused
-        let token = entry.cancel.clone();
-        drop(jobs);
-        token.cancel();
+            if entry.cancel_requested || entry.intent == CancelIntent::Discard {
+                return Err(XError::invalid_request("任务正在取消，不能暂停"));
+            }
+            entry.intent = CancelIntent::Pause;
+            // Paused 先原子落盘，再取消在飞请求；断点仍由后端保留。
+            entry.state = JobState::Paused;
+            entry.epoch += 1;
+            Ok(true)
+        })?
+        .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
+        entry.cancel.cancel();
         Ok(())
     }
 
     /// 恢复。
     pub fn resume(&self, job_id: &str) -> Result<(), XError> {
-        let token = {
-            let mut jobs = self.inner.jobs.lock().expect("jobs poisoned");
-            let entry = jobs
-                .get_mut(job_id)
-                .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
+        let mut should_dispatch = false;
+        let entry = transition_job_shared(&self.inner, &self.config, job_id, None, |entry| {
             if matches!(entry.state, JobState::Complete) {
                 return Err(XError::invalid_request("任务已完成，不能恢复"));
             }
+            if entry.cancel_requested || entry.intent == CancelIntent::Discard {
+                return Err(XError::invalid_request("已取消的任务不能恢复"));
+            }
+            if matches!(entry.state, JobState::Waiting | JobState::Active) {
+                // 保持旧契约的成功语义，但不再次派发，避免同一任务并行下载。
+                return Ok(true);
+            }
+            should_dispatch = true;
             entry.intent = CancelIntent::None;
             entry.state = JobState::Waiting;
             // 换一个新 token：旧的已经取消了
             entry.cancel = CancelToken::new();
             entry.epoch += 1;
-            entry.cancel.clone()
-        };
-        self.dispatch(job_id.to_string(), token);
+            entry.cancel_requested = false;
+            entry.reason = None;
+            entry.error = None;
+            entry.completed_at = None;
+            Ok(true)
+        })?
+        .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
+        if should_dispatch {
+            self.dispatch(job_id.to_string(), entry.epoch, entry.cancel);
+        }
         Ok(())
     }
 
     /// 取消：**丢弃断点**，目标目录保持干净。
     pub fn cancel(&self, job_id: &str) -> Result<(), XError> {
-        let (token, settle_now, dest) = {
-            let mut jobs = self.inner.jobs.lock().expect("jobs poisoned");
-            let entry = jobs
-                .get_mut(job_id)
-                .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
+        let entry = transition_job_shared(&self.inner, &self.config, job_id, None, |entry| {
             if matches!(entry.state, JobState::Complete) {
                 return Err(XError::invalid_request("任务已完成，不能取消"));
             }
-            entry.intent = CancelIntent::Discard;
-            // **不要在这里就把状态标成 Error**：字节还在流，
-            // "已取消"应当由真正停下来的那一刻来落（否则外壳会看到
-            // "状态已终态、但文件还在写"这种自相矛盾的快照）。
-            let in_flight = matches!(entry.state, JobState::Active);
-            if !in_flight {
-                entry.state = JobState::Error;
-                entry.reason = Some("cancelled".to_string());
-                entry.error = Some(XError::Cancelled.to_object());
+            if entry.cancel_requested {
+                return Ok(true);
             }
-            (
-                entry.cancel.clone(),
-                !in_flight,
+            // cancel_requested 先原子落盘，崩溃恢复时即使清理尚未完成也不会重启任务。
+            entry.cancel_requested = true;
+            entry.intent = CancelIntent::Discard;
+            Ok(true)
+        })?
+        .ok_or_else(|| XError::not_found(format!("未知 job_id：{job_id}")))?;
+        entry.cancel.cancel();
+        // Gate ownership, rather than the public state, tells whether any runner
+        // can still be writing. A second cancel can retry cleanup after an earlier
+        // filesystem failure left Active+cancel_requested without a runner.
+        let run_gate = entry.run_gate.clone();
+        if let Ok(_guard) = run_gate.clone().try_lock_owned() {
+            settle_cancelled_job(
+                self.inner.clone(),
+                self.inner.clone(),
+                self.config.clone(),
+                job_id.to_string(),
+                entry.epoch,
                 entry.job.dest_path.clone(),
-            )
-        };
-        token.cancel();
-        if settle_now {
-            // 没在飞的任务不会有人来收尾，这里自己收
-            cleanup_partials(&dest);
-            self.push_event(DownloadEvent::Failed {
-                job_id: job_id.to_string(),
-                reason: "cancelled".to_string(),
-                error: Box::new(XError::Cancelled.to_object()),
+                false,
+            )?;
+        } else {
+            let inner = self.inner.clone();
+            let events = self.inner.clone();
+            let config = self.config.clone();
+            let job_id = job_id.to_string();
+            let epoch = entry.epoch;
+            let dest_path = entry.job.dest_path.clone();
+            self.runtime.spawn(async move {
+                let _guard = run_gate.lock_owned().await;
+                let _ =
+                    settle_cancelled_job(inner, events, config, job_id, epoch, dest_path, false);
             });
         }
         Ok(())
@@ -660,7 +718,7 @@ impl DownloadQueue {
     // ------------------------------------------------------------------
 
     /// 派发一个任务：拿并发额度 → 跑 → 落状态。并发由信号量保证。
-    fn dispatch(&self, job_id: String, cancel: CancelToken) {
+    fn dispatch(&self, job_id: String, expected_epoch: u64, cancel: CancelToken) {
         let inner = self.inner.clone();
         let permits = self.permits.clone();
         let http = self.http.clone();
@@ -669,14 +727,19 @@ impl DownloadQueue {
         let proxy = self.proxy.clone();
         let queue_events = self.inner.clone();
 
-        let epoch = {
+        let (epoch, run_gate) = {
             let mut jobs = self.inner.jobs.lock().expect("jobs poisoned");
             match jobs.get_mut(&job_id) {
-                Some(entry) => {
+                Some(entry)
+                    if matches!(entry.state, JobState::Waiting)
+                        && entry.epoch == expected_epoch
+                        && !entry.cancel_requested
+                        && !entry.cancel.is_cancelled() =>
+                {
                     entry.epoch += 1;
-                    entry.epoch
+                    (entry.epoch, entry.run_gate.clone())
                 }
-                None => return,
+                _ => return,
             }
         };
 
@@ -685,6 +748,12 @@ impl DownloadQueue {
             let Ok(permit) = permits.acquire_owned().await else {
                 return;
             };
+            // 对同一 job 串行化后端 I/O。暂停后立刻恢复时，新轮必须等旧轮
+            // 完全退出后才能接触同一个断点文件。
+            let _run_guard = run_gate.lock().await;
+            if cancel.is_cancelled() {
+                return;
+            }
             run_job(
                 inner,
                 queue_events,
@@ -721,36 +790,49 @@ impl DownloadQueue {
         log.1.push(SequencedEvent { seq, event });
     }
 
-    fn record_of(&self, job_id: &str) -> Option<RecordEntry> {
+    fn is_known(&self, job_id: &str) -> bool {
+        let _write = self
+            .inner
+            .records_write
+            .lock()
+            .expect("records write poisoned");
+        let jobs = self.inner.jobs.lock().expect("jobs poisoned");
+        if jobs.contains_key(job_id) {
+            return true;
+        }
         self.inner
             .records
             .lock()
             .expect("records poisoned")
-            .get(job_id)
-            .cloned()
+            .contains_key(job_id)
     }
 
     /// 写入一条记录并落盘。**运行时路径**在 `write_record_shared`（跑完任务时用），
     /// 这里留一个同语义的入口给测试与"外壳要求补记录"的场景。
     #[cfg(test)]
     fn write_record(&self, job_id: &str, entry: RecordEntry) {
-        write_record_shared(&self.inner, &self.config, job_id, entry);
+        write_record_shared(&self.inner, &self.config, job_id, entry).expect("测试记录写入应成功");
     }
 
-    /// 读记录，把**未完成**的任务恢复成 waiting 并重新派发（重启续传）。
-    fn load_records(&self) -> usize {
+    /// 恢复持久状态：Waiting/Active 自动排队，Paused 保持暂停，Error 保留为终态快照。
+    fn load_records(&self) -> Result<usize, XError> {
         let Some(path) = &self.config.records_path else {
-            return 0;
+            return Ok(0);
         };
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return 0;
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => {
+                tracing::warn!(error = %e, "无法读取下载记录，队列以空记录启动");
+                return Ok(0);
+            }
         };
         let file: RecordsFile = match serde_json::from_str(&text) {
             Ok(file) => file,
             Err(e) => {
                 // 记录坏了不能让它把队列带崩：记一条 warn 就当没有
                 tracing::warn!(path = %path.display(), error = %e, "下载记录无法解析，忽略");
-                return 0;
+                return Ok(0);
             }
         };
         if file.version != RECORDS_VERSION {
@@ -759,50 +841,97 @@ impl DownloadQueue {
                 expected = RECORDS_VERSION,
                 "下载记录版本不匹配，忽略（不猜测旧格式）"
             );
-            return 0;
+            return Ok(0);
         }
         *self.inner.records.lock().expect("records poisoned") = file.jobs.clone();
 
-        // 恢复未完成的任务：**立刻重新排队**（续传），而不是等外壳来叫。
-        // 已完成的记录留着供幂等与 skip_if_present 判定；
-        // 失败（Error）的**不自动重试**——重试与否是外壳的决定。
         let mut restored = 0;
-        for (job_id, record) in &file.jobs {
-            if matches!(record.state, JobState::Complete | JobState::Error) {
+        let mut to_dispatch = Vec::new();
+        for (job_id, mut record) in file.jobs {
+            // 完成记录仍供幂等使用，但保持既有 dl.list 语义，不重建完成快照。
+            if matches!(record.state, JobState::Complete) {
                 continue;
             }
-            if record.url.trim().is_empty() {
-                tracing::warn!(job_id, "记录里没有 url，无法恢复（旧格式？）");
-                continue;
+
+            if record.cancel_requested {
+                // 上次已先写下取消意图，可能在删除断点前崩溃。重复清理安全，绝不派发。
+                cleanup_cancelled_files(
+                    Path::new(&record.dest_path),
+                    record.destination_preexisting,
+                    false,
+                )?;
+                record.state = JobState::Error;
+                record.reason = Some("cancelled".to_string());
+                record.error = Some(XError::Cancelled.to_object());
+                record.cancel_requested = false;
+                write_record_shared(&self.inner, &self.config, &job_id, record.clone())?;
             }
+
+            let persisted_state = record.state;
+            let state = match persisted_state {
+                JobState::Active => JobState::Waiting,
+                other => other,
+            };
+            if matches!(state, JobState::Waiting) && record.url.trim().is_empty() {
+                record.state = JobState::Error;
+                record.reason = Some("unrecoverable_record".to_string());
+                record.error =
+                    Some(XError::invalid_request("下载记录缺少 url，无法恢复").to_object());
+                write_record_shared(&self.inner, &self.config, &job_id, record.clone())?;
+            } else if state != persisted_state {
+                // Active 是进程崩溃时留下的状态。先持久化为 Waiting，再允许自动派发。
+                record.state = state;
+                write_record_shared(&self.inner, &self.config, &job_id, record.clone())?;
+            }
+
+            let state = record.state;
             let mut job = EnqueueJob::new(job_id.clone(), record.url.clone(), &record.dest_path);
             job.expect_size = record.expect_size;
             job.tag = record.tag.clone();
-            restored += 1;
+            job.requirements = record.requirements;
+            job.skip_if_present = record.skip_if_present;
+            // 临时文件才是续传进度的权威值；记录里的 bytes 只作诊断，不能覆盖磁盘事实。
+            let done = partial_bytes(&job.dest_path);
+            let cancel = CancelToken::new();
             self.remember(JobEntry {
-                state: JobState::Waiting,
-                done: 0,
-                total: record.expect_size.unwrap_or(0),
-                reason: None,
-                error: None,
-                cancel: CancelToken::new(),
+                state,
+                done,
+                total: record.expect_size.unwrap_or(done),
+                reason: record.reason.clone(),
+                error: record.error.clone(),
+                completed_at: record.completed_at.clone(),
+                cancel,
                 intent: CancelIntent::None,
                 engine: None,
                 attempts: 0,
                 epoch: 0,
+                cancel_requested: false,
+                destination_preexisting: record.destination_preexisting,
+                run_gate: Arc::new(tokio::sync::Mutex::new(())),
                 job,
             });
+            if matches!(
+                state,
+                JobState::Waiting | JobState::Active | JobState::Paused
+            ) {
+                restored += 1;
+            }
+            if matches!(state, JobState::Waiting) {
+                to_dispatch.push(job_id);
+            }
+        }
+        for job_id in to_dispatch {
             let token = self
                 .inner
                 .jobs
                 .lock()
                 .expect("jobs poisoned")
-                .get(job_id)
+                .get(&job_id)
                 .map(|e| e.cancel.clone())
                 .unwrap_or_default();
-            self.dispatch(job_id.clone(), token);
+            self.dispatch(job_id, 0, token);
         }
-        restored
+        Ok(restored)
     }
 
     /// 把恢复出来的未完成任务重新排队（由 `start()` 调用后由外壳触发，或自动调用）。
@@ -833,60 +962,60 @@ async fn run_job(
 ) {
     // 大小未知时先问服务端——**引擎选择要用它**（小文件走内置、大文件走 aria2），
     // 而且拿到大小之后 `expect_size` 才有值，完整性校验才成立。
-    let job = {
-        let needs_probe = {
-            let jobs = inner.jobs.lock().expect("jobs poisoned");
-            match jobs.get(&job_id) {
-                Some(entry) if entry.epoch == epoch => {
-                    entry.job.expect_size.is_none() && config.probe_size_when_unknown
-                }
-                _ => return,
+    let (url, needs_probe) = {
+        let jobs = inner.jobs.lock().expect("jobs poisoned");
+        match jobs.get(&job_id) {
+            Some(entry)
+                if entry.epoch == epoch
+                    && matches!(entry.state, JobState::Waiting)
+                    && !entry.cancel_requested =>
+            {
+                (
+                    entry.job.url.clone(),
+                    entry.job.expect_size.is_none() && config.probe_size_when_unknown,
+                )
             }
-        };
-        let mut job = {
-            let jobs = inner.jobs.lock().expect("jobs poisoned");
-            match jobs.get(&job_id) {
-                Some(entry) => entry.job.clone(),
-                None => return,
-            }
-        };
-        if needs_probe {
-            match http.probe_size(&job.url, &cancel).await {
-                Ok(Some(size)) => {
-                    tracing::debug!(job_id, size, "探到真实大小，用它做完整性校验");
-                    job.expect_size = Some(size);
-                    let mut jobs = inner.jobs.lock().expect("jobs poisoned");
-                    if let Some(entry) = jobs.get_mut(&job_id) {
-                        if entry.epoch == epoch {
-                            entry.job.expect_size = Some(size);
-                            entry.total = size;
-                        }
+            _ => return,
+        }
+    };
+    if needs_probe {
+        match http.probe_size(&url, &cancel).await {
+            Ok(Some(size)) => {
+                tracing::debug!(job_id, size, "探到真实大小，用它做完整性校验");
+                let mut jobs = inner.jobs.lock().expect("jobs poisoned");
+                if let Some(entry) = jobs.get_mut(&job_id) {
+                    if entry.epoch == epoch && matches!(entry.state, JobState::Waiting) {
+                        entry.job.expect_size = Some(size);
+                        entry.total = size;
                     }
                 }
-                // 探测失败不是错误：服务端没说就按"未知"继续（docs/02 §E2 的
-                // Unverified 分支就是为这种情况留的）
-                Ok(None) => tracing::debug!(job_id, "服务端没给大小，按未知处理"),
-                Err(e) => tracing::debug!(job_id, error = %e, "大小探测失败，按未知处理"),
             }
+            // 探测失败不是错误：服务端没说就按"未知"继续（docs/02 §E2 的
+            // Unverified 分支就是为这种情况留的）
+            Ok(None) => tracing::debug!(job_id, "服务端没给大小，按未知处理"),
+            Err(e) => tracing::debug!(job_id, error = %e, "大小探测失败，按未知处理"),
         }
-        job
-    };
+    }
 
-    // 取任务快照
-    let (job, engine) = {
-        let mut jobs = inner.jobs.lock().expect("jobs poisoned");
-        let Some(entry) = jobs.get_mut(&job_id) else {
-            return;
-        };
-        // 已经被新的一轮取代，或者排队期间被暂停/取消了 → 这一轮什么都不做
-        if entry.epoch != epoch || !matches!(entry.state, JobState::Waiting) {
-            return;
+    // Active 必须先写盘成功再开始搬字节。写盘失败时不接受一个无法恢复的任务。
+    let started = transition_job_shared(&inner, &config, &job_id, Some(epoch), |entry| {
+        if !matches!(entry.state, JobState::Waiting) || entry.cancel_requested {
+            return Ok(false);
         }
-        let engine = choose_engine_static(&aria2, &config, &job);
+        let engine = choose_engine_static(&aria2, &config, &entry.job);
         entry.state = JobState::Active;
         entry.engine = Some(engine);
         entry.attempts += 1;
-        (job, engine)
+        Ok(true)
+    });
+    let (job, engine) = match started {
+        Ok(Some(entry)) => (entry.job, entry.engine.expect("active 任务应有引擎")),
+        Ok(None) => return,
+        Err(error) => {
+            mark_ephemeral_error(&inner, &job_id, epoch, &error);
+            push_persistence_failure(&events, &job_id, &error);
+            return;
+        }
     };
 
     // 队列总是让后端保留半成品：删不删由队列决定（暂停 vs 放弃）
@@ -908,24 +1037,36 @@ async fn run_job(
     let progress_events = events.clone();
     let progress_job = job_id.clone();
     let mut on_progress = move |done: u64, total: u64| {
-        {
+        let current = {
             let mut jobs = progress_inner.jobs.lock().expect("jobs poisoned");
             if let Some(entry) = jobs.get_mut(&progress_job) {
-                // 单调不减：续传/重试时回退不算退步
-                entry.done = entry.done.max(done);
-                if total > 0 {
-                    entry.total = total;
+                if entry.epoch == epoch
+                    && matches!(entry.state, JobState::Active)
+                    && !entry.cancel_requested
+                {
+                    // 单调不减：续传/重试时回退不算退步
+                    entry.done = entry.done.max(done);
+                    if total > 0 {
+                        entry.total = total;
+                    }
+                    true
+                } else {
+                    false
                 }
+            } else {
+                false
             }
+        };
+        if current {
+            push_shared(
+                &progress_events,
+                DownloadEvent::Progress {
+                    job_id: progress_job.clone(),
+                    done,
+                    total,
+                },
+            );
         }
-        push_shared(
-            &progress_events,
-            DownloadEvent::Progress {
-                job_id: progress_job.clone(),
-                done,
-                total,
-            },
-        );
     };
 
     let result = match engine {
@@ -978,85 +1119,239 @@ async fn finish_job(
     dest_path: PathBuf,
     result: Result<DownloadOutcome, DownloadError>,
 ) {
-    // 只在自己那一轮里落状态：被暂停/恢复/取消过之后，上一轮的结果就作废了
-    let (still_mine, intent) = {
+    // 只在自己那一轮里落状态：被暂停/恢复过之后，上一轮结果作废。
+    let (intent, effective_epoch) = {
         let jobs = inner.jobs.lock().expect("jobs poisoned");
         match jobs.get(&job_id) {
-            Some(entry) => (entry.epoch == epoch, entry.intent),
+            Some(entry) if entry.epoch == epoch => (entry.intent, epoch),
+            Some(entry) if entry.cancel_requested && entry.intent == CancelIntent::Discard => {
+                // pause increments the epoch, then cancel can arrive while the old
+                // backend still owns the files. The old runner finishes that durable
+                // cancellation rather than silently leaving it pending.
+                (CancelIntent::Discard, entry.epoch)
+            }
+            Some(_) => {
+                tracing::debug!(job_id, epoch, "这一轮已被取代，丢弃结果");
+                return;
+            }
             None => return,
         }
     };
-    if !still_mine {
-        tracing::debug!(job_id, epoch, "这一轮已被取代，丢弃结果");
+    if intent == CancelIntent::Pause {
+        tracing::debug!(job_id, "已暂停（保留断点）");
+        return;
+    }
+    if intent == CancelIntent::Discard {
+        let _ = settle_cancelled_job(
+            inner,
+            events,
+            config,
+            job_id,
+            effective_epoch,
+            dest_path,
+            result.is_ok(),
+        );
         return;
     }
 
     match result {
         Ok(outcome) => {
-            {
-                let mut jobs = inner.jobs.lock().expect("jobs poisoned");
-                if let Some(entry) = jobs.get_mut(&job_id) {
-                    entry.state = JobState::Complete;
-                    entry.done = outcome.bytes;
-                    entry.total = outcome.bytes.max(entry.total);
-                    entry.error = None;
-                    entry.reason = None;
-                    entry.intent = CancelIntent::None;
+            let persisted = transition_job_shared(&inner, &config, &job_id, Some(epoch), |entry| {
+                // cancel() may have persisted its intent after the initial read above.
+                if entry.cancel_requested || entry.intent == CancelIntent::Discard {
+                    return Ok(false);
+                }
+                entry.state = JobState::Complete;
+                entry.done = outcome.bytes;
+                entry.total = outcome.bytes.max(entry.total);
+                entry.error = None;
+                entry.reason = None;
+                entry.completed_at = Some(xspider_core::xdate::today_utc());
+                entry.intent = CancelIntent::None;
+                entry.cancel_requested = false;
+                Ok(true)
+            });
+            match persisted {
+                Ok(Some(_)) => push_shared(
+                    &events,
+                    DownloadEvent::Completed {
+                        job_id,
+                        path: dest_path.display().to_string(),
+                        bytes: outcome.bytes,
+                        integrity: outcome.integrity,
+                    },
+                ),
+                Ok(None) if current_cancel_requested(&inner, &job_id, epoch) => {
+                    let _ = settle_cancelled_job(
+                        inner,
+                        events,
+                        config,
+                        job_id,
+                        effective_epoch,
+                        dest_path,
+                        true,
+                    );
+                }
+                Ok(None) => tracing::debug!(job_id, epoch, "完成结果已过期，丢弃"),
+                Err(error) => {
+                    mark_ephemeral_error(&inner, &job_id, epoch, &error);
+                    push_persistence_failure(&events, &job_id, &error);
                 }
             }
-            write_record_shared(
-                &inner,
-                &config,
-                &job_id,
-                RecordEntry {
-                    state: JobState::Complete,
-                    dest_path: dest_path.display().to_string(),
-                    bytes: outcome.bytes,
-                    completed_at: Some(xspider_core::xdate::today_utc()),
-                    ..record_for(&inner, &job_id)
-                },
-            );
-            push_shared(
-                &events,
-                DownloadEvent::Completed {
-                    job_id,
-                    path: dest_path.display().to_string(),
-                    bytes: outcome.bytes,
-                    integrity: outcome.integrity,
-                },
-            );
         }
         Err(error) => {
-            // 暂停是一种**状态**，不是失败：不发 Failed 事件，也不动断点
-            if error == DownloadError::Cancelled && intent == CancelIntent::Pause {
-                tracing::debug!(job_id, "已暂停（保留断点）");
+            if current_cancel_requested(&inner, &job_id, epoch) {
+                let _ = settle_cancelled_job(
+                    inner,
+                    events,
+                    config,
+                    job_id,
+                    effective_epoch,
+                    dest_path,
+                    false,
+                );
                 return;
             }
             let (state, reason) = classify_failure(&error);
-            {
-                let mut jobs = inner.jobs.lock().expect("jobs poisoned");
-                if let Some(entry) = jobs.get_mut(&job_id) {
-                    entry.state = state;
-                    entry.reason = Some(reason.clone());
-                    entry.error = Some(error.clone().into());
-                    entry.intent = CancelIntent::None;
-                }
-            }
             // 半成品处理：暂停要留（上面已经 return）；其它失败里只有"可能是暂时的"
             // 才值得留着给下次续传——完整性失败与 404 留着毫无意义
             if !error.is_resumable() {
                 cleanup_partials(&dest_path);
             }
-            push_shared(
-                &events,
-                DownloadEvent::Failed {
-                    job_id,
-                    reason,
-                    error: Box::new(error.into()),
-                },
-            );
+            let persisted = transition_job_shared(&inner, &config, &job_id, Some(epoch), |entry| {
+                if entry.cancel_requested || entry.intent == CancelIntent::Discard {
+                    return Ok(false);
+                }
+                entry.state = state;
+                entry.reason = Some(reason.clone());
+                entry.error = Some(error.clone().into());
+                entry.intent = CancelIntent::None;
+                Ok(true)
+            });
+            match persisted {
+                Ok(Some(_)) => push_shared(
+                    &events,
+                    DownloadEvent::Failed {
+                        job_id,
+                        reason,
+                        error: Box::new(error.into()),
+                    },
+                ),
+                Ok(None) if current_cancel_requested(&inner, &job_id, epoch) => {
+                    let _ = settle_cancelled_job(
+                        inner,
+                        events,
+                        config,
+                        job_id,
+                        effective_epoch,
+                        dest_path,
+                        false,
+                    );
+                }
+                Ok(None) => tracing::debug!(job_id, epoch, "失败结果已过期，丢弃"),
+                Err(persist_error) => {
+                    mark_ephemeral_error(&inner, &job_id, epoch, &persist_error);
+                    push_persistence_failure(&events, &job_id, &persist_error);
+                }
+            }
         }
     }
+}
+
+fn current_cancel_requested(inner: &Arc<Inner>, job_id: &str, epoch: u64) -> bool {
+    inner
+        .jobs
+        .lock()
+        .expect("jobs poisoned")
+        .get(job_id)
+        .is_some_and(|entry| entry.epoch == epoch && entry.cancel_requested)
+}
+
+fn settle_cancelled_job(
+    inner: Arc<Inner>,
+    events: Arc<Inner>,
+    config: QueueConfig,
+    job_id: String,
+    epoch: u64,
+    dest_path: PathBuf,
+    remove_destination: bool,
+) -> Result<(), XError> {
+    let destination_preexisting = {
+        let jobs = inner.jobs.lock().expect("jobs poisoned");
+        let Some(entry) = jobs.get(&job_id) else {
+            return Ok(());
+        };
+        if entry.epoch != epoch || !entry.cancel_requested || entry.intent != CancelIntent::Discard
+        {
+            return Ok(());
+        }
+        entry.destination_preexisting
+    };
+    if let Err(error) =
+        cleanup_cancelled_files(&dest_path, destination_preexisting, remove_destination)
+    {
+        push_shared(
+            &events,
+            DownloadEvent::Failed {
+                job_id: job_id.clone(),
+                reason: "cancel_cleanup_failed".to_string(),
+                error: Box::new(error.to_object()),
+            },
+        );
+        return Err(error);
+    }
+    let persisted = transition_job_shared(&inner, &config, &job_id, Some(epoch), |entry| {
+        if !entry.cancel_requested || entry.intent != CancelIntent::Discard {
+            return Ok(false);
+        }
+        entry.state = JobState::Error;
+        entry.reason = Some("cancelled".to_string());
+        entry.error = Some(XError::Cancelled.to_object());
+        entry.intent = CancelIntent::None;
+        entry.cancel_requested = false;
+        Ok(true)
+    });
+    match persisted {
+        Ok(Some(_)) => push_shared(
+            &events,
+            DownloadEvent::Failed {
+                job_id,
+                reason: "cancelled".to_string(),
+                error: Box::new(XError::Cancelled.to_object()),
+            },
+        ),
+        Ok(None) => tracing::debug!(job_id, epoch, "取消已由另一个收尾路径完成"),
+        Err(error) => {
+            mark_ephemeral_error(&inner, &job_id, epoch, &error);
+            push_persistence_failure(&events, &job_id, &error);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn mark_ephemeral_error(inner: &Arc<Inner>, job_id: &str, epoch: u64, error: &XError) {
+    let mut jobs = inner.jobs.lock().expect("jobs poisoned");
+    if let Some(entry) = jobs.get_mut(job_id) {
+        if entry.epoch == epoch && !matches!(entry.state, JobState::Complete) {
+            entry.state = JobState::Error;
+            entry.reason = Some("state_persist_failed".to_string());
+            entry.error = Some(error.to_object());
+            entry.intent = CancelIntent::None;
+        }
+    }
+}
+
+fn push_persistence_failure(events: &Arc<Inner>, job_id: &str, error: &XError) {
+    tracing::error!(job_id, error = %error, "下载状态无法持久化，任务已停止");
+    push_shared(
+        events,
+        DownloadEvent::Failed {
+            job_id: job_id.to_string(),
+            reason: "state_persist_failed".to_string(),
+            error: Box::new(error.to_object()),
+        },
+    );
 }
 
 /// 失败 → (状态, 结构化原因标签)。**不匹配文案**。
@@ -1092,29 +1387,145 @@ fn cleanup_partials(dest: &Path) {
     }
 }
 
-/// 从队列里取这条任务的 url / expect_size（写记录时要带上，重启续传靠它）。
-fn record_for(inner: &Arc<Inner>, job_id: &str) -> RecordEntry {
-    let jobs = inner.jobs.lock().expect("jobs poisoned");
-    match jobs.get(job_id) {
-        Some(entry) => RecordEntry {
-            state: entry.state,
-            dest_path: entry.job.dest_path.display().to_string(),
-            bytes: entry.done,
-            url: entry.job.url.clone(),
-            expect_size: entry.job.expect_size,
-            completed_at: None,
-            tag: entry.job.tag.clone(),
-        },
-        None => RecordEntry {
-            state: JobState::Error,
-            dest_path: String::new(),
-            bytes: 0,
-            url: String::new(),
-            expect_size: None,
-            completed_at: None,
-            tag: None,
-        },
+/// Cancellation cleanup is fail-closed: retain the durable cancel intent and do
+/// not publish a terminal snapshot if any owned file could not be removed.
+fn cleanup_cancelled_files(
+    dest: &Path,
+    destination_preexisting: Option<bool>,
+    remove_destination: bool,
+) -> Result<(), XError> {
+    if remove_destination && destination_preexisting == Some(false) {
+        remove_file_if_exists(dest)?;
     }
+    for attribution in [ATTRIBUTION_HTTP, ATTRIBUTION_ARIA2] {
+        let part = part_path_for(dest, attribution);
+        remove_file_if_exists(&part)?;
+        let mut control = part
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        control.push_str(".aria2");
+        remove_file_if_exists(&part.with_file_name(control))?;
+    }
+    Ok(())
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<(), XError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(record_io_error(error)),
+    }
+}
+
+fn destination_preexisting(dest: &Path) -> Option<bool> {
+    match fs::metadata(dest) {
+        Ok(_) => Some(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
+        Err(_) => None,
+    }
+}
+
+fn record_from_job(entry: &JobEntry) -> RecordEntry {
+    RecordEntry {
+        state: entry.state,
+        dest_path: entry.job.dest_path.display().to_string(),
+        bytes: entry.done,
+        url: entry.job.url.clone(),
+        expect_size: entry.job.expect_size,
+        completed_at: entry.completed_at.clone(),
+        tag: entry.job.tag.clone(),
+        requirements: entry.job.requirements,
+        skip_if_present: entry.job.skip_if_present,
+        reason: entry.reason.clone(),
+        error: entry.error.clone(),
+        cancel_requested: entry.cancel_requested,
+        destination_preexisting: entry.destination_preexisting,
+    }
+}
+
+fn partial_bytes(dest: &Path) -> u64 {
+    [ATTRIBUTION_HTTP, ATTRIBUTION_ARIA2]
+        .into_iter()
+        .map(|engine| part_path_for(dest, engine))
+        .filter_map(|path| fs::metadata(path).ok().map(|meta| meta.len()))
+        .max()
+        .unwrap_or(0)
+}
+
+/// 用同一序列化锁提交状态与记录。epoch 校验、候选状态构造和落盘顺序一致，
+/// 旧任务轮次不可能在新状态之后写回旧记录。
+fn transition_job_shared<F>(
+    inner: &Arc<Inner>,
+    config: &QueueConfig,
+    job_id: &str,
+    expected_epoch: Option<u64>,
+    transition: F,
+) -> Result<Option<JobEntry>, XError>
+where
+    F: FnOnce(&mut JobEntry) -> Result<bool, XError>,
+{
+    let _write = inner.records_write.lock().expect("records write poisoned");
+    let mut jobs = inner.jobs.lock().expect("jobs poisoned");
+    let Some(current) = jobs.get_mut(job_id) else {
+        return Ok(None);
+    };
+    if expected_epoch.is_some_and(|epoch| current.epoch != epoch) {
+        return Ok(None);
+    }
+    let mut candidate = current.clone();
+    if !transition(&mut candidate)? {
+        return Ok(None);
+    }
+    let record = record_from_job(&candidate);
+    update_record_locked(inner, config, job_id, record)?;
+    *current = candidate.clone();
+    Ok(Some(candidate))
+}
+
+/// 新入队先提交记录，成功后才把任务放进可派发状态。
+fn insert_job_shared(
+    inner: &Arc<Inner>,
+    config: &QueueConfig,
+    entry: JobEntry,
+) -> Result<bool, XError> {
+    let job_id = entry.job.job_id.to_string();
+    let _write = inner.records_write.lock().expect("records write poisoned");
+    let mut jobs = inner.jobs.lock().expect("jobs poisoned");
+    if jobs.contains_key(&job_id)
+        || inner
+            .records
+            .lock()
+            .expect("records poisoned")
+            .contains_key(&job_id)
+    {
+        return Ok(false);
+    }
+    update_record_locked(inner, config, &job_id, record_from_job(&entry))?;
+    jobs.insert(job_id, entry);
+    Ok(true)
+}
+
+/// 调用方已持有 records_write；先写同目录临时文件并 rename，成功后再更新内存记录。
+fn update_record_locked(
+    inner: &Arc<Inner>,
+    config: &QueueConfig,
+    job_id: &str,
+    entry: RecordEntry,
+) -> Result<(), XError> {
+    let mut next = inner.records.lock().expect("records poisoned").clone();
+    next.insert(job_id.to_string(), entry);
+    if let Some(path) = &config.records_path {
+        write_records_file(
+            path,
+            &RecordsFile {
+                version: RECORDS_VERSION,
+                jobs: next.clone(),
+            },
+        )?;
+    }
+    *inner.records.lock().expect("records poisoned") = next;
+    Ok(())
 }
 
 fn push_shared(inner: &Arc<Inner>, event: DownloadEvent) {
@@ -1142,8 +1553,13 @@ fn unique_records_tmp(path: &Path) -> PathBuf {
     path.with_file_name(format!("{name}.{}.{}.tmp", std::process::id(), n))
 }
 
-fn write_record_shared(inner: &Arc<Inner>, config: &QueueConfig, job_id: &str, entry: RecordEntry) {
-    write_record_shared_impl(inner, config, job_id, entry, &|| {});
+fn write_record_shared(
+    inner: &Arc<Inner>,
+    config: &QueueConfig,
+    job_id: &str,
+    entry: RecordEntry,
+) -> Result<(), XError> {
+    write_record_shared_impl(inner, config, job_id, entry, &|| {})
 }
 
 /// `before_persist` 仅测试用：在**持有写锁**、取完快照之后、落盘之前调用，
@@ -1154,39 +1570,50 @@ fn write_record_shared_impl(
     job_id: &str,
     entry: RecordEntry,
     before_persist: &dyn Fn(),
-) {
-    // 没配记录路径：只更新内存（内存是权威，盘只供重启恢复）。
-    let Some(path) = &config.records_path else {
-        inner
-            .records
-            .lock()
-            .expect("records poisoned")
-            .insert(job_id.to_string(), entry);
-        return;
-    };
-
+) -> Result<(), XError> {
     // 同一把写锁包住「insert + 快照 + 写盘」：否则两个任务同时完成时，
     // 先取快照的可能后写盘，用旧快照覆盖掉另一条记录（重启后丢幂等与断点）。
     let _write = inner.records_write.lock().expect("records write poisoned");
     let file = {
-        let mut records = inner.records.lock().expect("records poisoned");
-        records.insert(job_id.to_string(), entry);
+        let mut jobs = inner.records.lock().expect("records poisoned").clone();
+        jobs.insert(job_id.to_string(), entry);
         RecordsFile {
             version: RECORDS_VERSION,
-            jobs: records.clone(),
+            jobs,
         }
-    }; // <- records 锁在这里就释放，读者不受落盘影响
-    before_persist();
-    let Ok(text) = serde_json::to_string_pretty(&file) else {
-        return;
     };
+    before_persist();
+    if let Some(path) = &config.records_path {
+        write_records_file(path, &file)?;
+    }
+    *inner.records.lock().expect("records poisoned") = file.jobs;
+    Ok(())
+}
+
+fn write_records_file(path: &Path, file: &RecordsFile) -> Result<(), XError> {
+    let text = serde_json::to_vec_pretty(file)
+        .map_err(|e| XError::internal(format!("序列化下载记录失败：{e}")))?;
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(record_io_error)?;
+    }
     let tmp = unique_records_tmp(path);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let write_result = (|| -> std::io::Result<()> {
+        let mut output = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        output.write_all(&text)?;
+        output.sync_all()?;
+        drop(output);
+        fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(record_io_error(error));
     }
-    if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, path).is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
+    Ok(())
+}
+
+fn record_io_error(error: std::io::Error) -> XError {
+    XError::transport("state_persist", format!("保存下载记录失败：{error}"))
 }
 
 impl DownloadError {
@@ -1523,6 +1950,12 @@ mod tests {
                     expect_size: Some(42),
                     completed_at: Some("2026-10-01".to_string()),
                     tag: Some("post-1".to_string()),
+                    requirements: Requirements::default(),
+                    skip_if_present: false,
+                    reason: None,
+                    error: None,
+                    cancel_requested: false,
+                    destination_preexisting: None,
                 },
             );
             queue.shutdown().await;
@@ -1575,6 +2008,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn stale_dispatch_cannot_invalidate_a_newer_resume() {
+        let dir =
+            std::env::temp_dir().join(format!("xspider-q-stale-dispatch-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let queue = DownloadQueue::start(config(&dir)).await.expect("启动队列");
+        // Stop every spawned run at the semaphore so this test controls the race
+        // without depending on socket timing.
+        let _held = vec![
+            queue.permits.clone().acquire_owned().await.unwrap(),
+            queue.permits.clone().acquire_owned().await.unwrap(),
+        ];
+        queue
+            .enqueue(EnqueueJob::new(
+                "stale-dispatch",
+                "http://127.0.0.1:1/never-requested",
+                dir.join("stale.bin"),
+            ))
+            .await
+            .unwrap();
+        let (old_epoch, old_token) = {
+            let jobs = queue.inner.jobs.lock().unwrap();
+            let entry = jobs.get("stale-dispatch").unwrap();
+            (entry.epoch, entry.cancel.clone())
+        };
+        queue.pause("stale-dispatch").unwrap();
+        queue.resume("stale-dispatch").unwrap();
+        let resumed_epoch = queue
+            .inner
+            .jobs
+            .lock()
+            .unwrap()
+            .get("stale-dispatch")
+            .unwrap()
+            .epoch;
+
+        // This stands in for a resume continuation delayed after it captured its
+        // token, then released after a newer pause/resume already dispatched.
+        queue.dispatch("stale-dispatch".to_string(), old_epoch, old_token);
+        let after_stale_dispatch = queue
+            .inner
+            .jobs
+            .lock()
+            .unwrap()
+            .get("stale-dispatch")
+            .unwrap()
+            .epoch;
+        assert_eq!(
+            after_stale_dispatch, resumed_epoch,
+            "旧 token 的延迟 dispatch 不得使有效 runner epoch 过期"
+        );
+
+        queue.pause("stale-dispatch").unwrap();
+        drop(_held);
+        queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn record_entry(job_id: &str) -> RecordEntry {
         RecordEntry {
             state: JobState::Complete,
@@ -1584,6 +2075,12 @@ mod tests {
             expect_size: Some(1),
             completed_at: Some("2026-10-01".to_string()),
             tag: None,
+            requirements: Requirements::default(),
+            skip_if_present: false,
+            reason: None,
+            error: None,
+            cancel_requested: false,
+            destination_preexisting: None,
         }
     }
 
@@ -1632,7 +2129,8 @@ mod tests {
             write_record_shared_impl(&inner_a, &cfg_a, "job-a", record_entry("job-a"), &|| {
                 let _ = snapshot_taken_tx.send(());
                 let _ = go_rx.recv();
-            });
+            })
+            .unwrap();
         });
 
         snapshot_taken_rx
@@ -1641,7 +2139,7 @@ mod tests {
         let inner_b = inner.clone();
         let cfg_b = cfg.clone();
         let b = std::thread::spawn(move || {
-            write_record_shared(&inner_b, &cfg_b, "job-b", record_entry("job-b"));
+            write_record_shared(&inner_b, &cfg_b, "job-b", record_entry("job-b")).unwrap();
         });
         // B 尝试拿写锁的时间窗；即便它还没到，最终文件也必须两条都有。
         std::thread::sleep(std::time::Duration::from_millis(60));

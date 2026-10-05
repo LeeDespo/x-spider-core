@@ -25,33 +25,42 @@
 - **fixture 必须是真实抓到的响应**，不许手写 JSON 冒充。
   手写的样本只能证明"你按自己以为的格式解析正确"，X 改字段时它不会红——
   这正是"用户先发现问题"的根因。
-- 采集方式：给组件加一个**录制模式**（`XSPIDER_RECORD=1` 或 `--record-dir`），
-  把原始响应按 `endpoint/scenario/日期.json` 落盘；录完再脱敏入库。
+- 采集方式：运行 `crates/xspider-fetch/tests/record_live.rs` 中的 `#[ignore]` 录制测试。
+  需要显式设 `XSPIDER_LIVE=1`、`XSPIDER_COOKIE`（代理需要时设 `XSPIDER_PROXY`）；原始响应落在
+  `fixtures/<endpoint>/raw/<scenario>.json`，再用 `python3 script/redact_fixtures.py` 脱敏入库。
+  `record_xclid_page` 单独从真实登录态页面提取签名原料；这两个路径都不是 `XSPIDER_RECORD`
+  或 `--record-dir` 开关。
 - **脱敏规则**（保留结构、去掉个人数据与体积）：
   - `cookie` / `ct0` / token：整段替换为 `"REDACTED"`；
-  - 数组裁到 **2–3 条**（保持分页字段 `cursor` 原样，它才是语义关键）；
+  - 数组最多留 **3 条**（保持分页字段 `cursor` 原样，它才是语义关键）；
   - 用户名/昵称/正文：替换为固定假值（保留字符类型与近似的长度）；
   - 媒体 URL：保留 host，路径换成假名（**不要把真实 URL 提交进仓库**）；
-  - 不要删字段——删字段等于降低解析覆盖率。
+  - 不要删字段——删字段等于降低解析覆盖率；数字 ID 的假值须互不相同，避免改变去重结果。
 
-### 2.2 目录与命名
+### 2.2 当前目录与命名
 ```
 fixtures/
-├── user_medias/
-│   ├── page1_normal.json
-│   ├── page2_empty_end.json          # 解析出 0 条 → cursor 必须为 null
-│   ├── rate_limited_429.json
-│   ├── not_found_404.json
-│   └── field_changed_2026_09.json    # 记录一次真实改版的样本（最值钱）
-├── tweet_detail/
-│   ├── with_promoted_ads.json        # 必须断言广告被过滤干净
-│   ├── reply_tree_partial_parent.json
-│   └── repeated_retweet_same_id.json # 必须断言去重
-└── search_timeline/…
+├── user_by_screen_name/{normal,not_found,unauthorized}.json
+├── user_medias/{page1,page2}.json
+├── user_tweets/page1.json
+├── tweet_detail/with_replies.json
+├── search_timeline/{media_only,query_id_source}.json
+├── home_timeline/{for_you,following}.json
+├── following/page1.json
+└── xclid/page_artifacts.json         # 签名原料；不是 HTTP response fixture
 ```
 
-### 2.3 每个端点至少覆盖 5 类样本
-`正常` / `空页（到底）` / `限流 429` / `404 或未授权` / `字段缺失或改名（改版）`。
+该树是当前已入库的资产，不是每端点都要达到同一组场景。`search_timeline/query_id_source.json`
+是 queryId 自愈所用的 bundle 片段，没有 `response` 字段，回放加载器会跳过它。原始录制位于
+各端点的 `raw/` 子目录，已由 `.gitignore` 排除且回放加载器跳过；准确覆盖与刻意留空的场景
+见 [`../fixtures/README.md`](../fixtures/README.md)。
+
+### 2.3 按真实证据维护覆盖
+
+每个端点不强制收齐固定的五类响应。先入库有代表性的真实正常响应和真实分页形态；异常样本只能
+来自实际观察。当前没有真实 429 或字段改名响应，也没有为每个端点各自采集 404/未授权样本。
+429 的限流状态机由单元测试覆盖，下载 HTTP 错误由本地 HTTP E2E 覆盖；这两种测试不得标成真实 X
+响应 fixture。字段改名只在 canary 真正捕获变化后加入。
 
 ---
 
@@ -63,7 +72,7 @@ fixtures/
 |---|---|
 | 首页请求的 `variables` **不含 cursor 键**（不是 null） | 传 null 会反复请求第一页 |
 | 翻页时 `cursor` 用上一页返回值 | — |
-| 解析出 0 条 → `cursor: null` | 到底信号 |
+| 服务端无下一页 → page DTO 省略 `cursor`；客户端筛空但服务端仍有游标 → 保留游标 | 到底信号与筛选后的空页不能混为一谈 |
 | 广告条目被过滤（三个解析入口各一条用例） | 漏一个入口就漏广告 |
 | 同一 ID 重复出现 → 去重后唯一 | 重复转推导致空白卡片 |
 | 孤儿的 `is_partial_parent = true` 且**不被丢弃** | 父不在本页时不能丢数据 |
@@ -112,8 +121,9 @@ fn assert_same_behavior(case: Case) { ... }
 | `cancel` | 无残留子进程与临时文件（`pgrep` + 目录扫描断言） |
 | 磁盘写满（可用容器/配额模拟，或注入故障） | `failed{reason: disk_full}`，且不破坏已有文件 |
 
-**另测**：`dl.enqueue` 同 `job_id` 两次 → 只算一个任务（幂等）；
-重启后 `dl.list()` 能恢复未完成任务并续传。
+**另测**：`dl.enqueue` 同 `job_id` 两次 → 只算一个任务（幂等）；落盘恢复测试覆盖
+`waiting/active → waiting`、`paused → paused`、`error → error`，取消造成的 `error` 不会自动重试。
+重启后要由外壳用 `dl.list()` 对账；若外壳策略是重启不自动继续，应显式暂停恢复出的 waiting 任务。
 
 ---
 
@@ -123,7 +133,7 @@ fn assert_same_behavior(case: Case) { ... }
 #[test]
 #[ignore]                                   // 默认不跑
 fn canary_all_endpoints() {                 // XSPIDER_LIVE=1 cargo test -- --ignored canary
-    // 对 6 个端点各取 1 条；断言：HTTP 成功 + 解析成功 + 关键字段非空
+    // 检查 7 个 fetch method、共 8 次请求；断言：HTTP 成功 + 解析成功 + 关键字段非空
     // 失败时输出可读报告：端点 / 阶段（请求/解析）/ 缺失字段 / 原始响应片段
 }
 ```
@@ -132,7 +142,11 @@ fn canary_all_endpoints() {                 // XSPIDER_LIVE=1 cargo test -- --ig
 - **报告要能一眼定位**："`fetch.user_medias` 解析失败：`entries[0].content.itemContent` 缺失"
   ——不要只报 `assertion failed`；
 - 不要在 CI 默认跑（会消耗账号配额）；用**手动触发**或**每日定时**；
-- canary 红了 → 立刻把原始响应存成 `field_changed_<日期>.json` 进 fixtures，再修解析。
+- canary 当前覆盖 `fetch.get_user`、`user_medias`、`user_tweets`、`tweet_detail`、
+  `search_timeline`、`home_timeline` 两种模式、`following`；`fetch.is_following` 与
+  `fetch.mutate` 不在 canary 覆盖内，匿名鉴权另有一条 canary。
+- canary 红了会把原始响应写到端点目录的 `field_changed_<日期>.json`，内容未脱敏；
+  redactor 只扫描 `raw/`，因此先人工检查、补全匹配提示并移到 `raw/`，再脱敏和 review。
 
 ---
 
@@ -156,4 +170,4 @@ fn canary_all_endpoints() {                 // XSPIDER_LIVE=1 cargo test -- --ig
 3. `cargo test` 离线全绿；`cargo clippy -- -D warnings` 干净；`cargo fmt --check` 通过；
 4. 双形态契约测试一致；
 5. 涉及下载的：本地 HTTP E2E 覆盖断点续传与完整性；
-6. 新增的坑写进了 `AGENTS.md` 踩坑记录或 `docs/02`。
+6. 将新增领域坑写入 `docs/02`；维护者也可同步记入本地操作手册，该手册不随仓库发布。

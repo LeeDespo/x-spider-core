@@ -64,6 +64,8 @@ crates/xspider-core/src/xclid.rs 的算法移植自：
 
 因此：`dist/` 产物里若包含 `aria2next` 可执行文件，
 `LICENSE` / 本 NOTICE 必须一并放入（见 docs/03-FFI-SIGNING-PACKAGING.md §4、§5）。
+完整 GPL-2.0 许可证文本由仓库根目录的 `LICENSE.aria2` 提供；任何包含 Aria2Next 的
+macOS、Android 或其他平台产物都必须将该文件与二进制一同分发。
 
 另外两条实测结论（都写进了代码与测试）：
 

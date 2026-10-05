@@ -151,7 +151,11 @@ impl Engine {
             ..QueueConfig::default()
         };
         if let Some(binary) = Aria2NextConfig::locate_binary() {
-            config.aria2 = Some(Aria2NextConfig::new(binary, std::env::temp_dir()));
+            let dir = std::env::var_os("XSPIDER_ARIA2_DIR")
+                .filter(|value| !value.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir);
+            config.aria2 = Some(Aria2NextConfig::new(binary, dir));
         }
         // 下载记录路径：**`--state-dir` 优先于 `XSPIDER_STATE_DIR`**。
         // 两边都没给就不落盘（内存是权威，盘只供重启恢复）。
@@ -173,6 +177,7 @@ impl Engine {
     /// 配置来自环境变量（外加显式的 `--state-dir`），且**引擎选择留在组件内部**
     /// （`docs/01` §5.2 纪律 1）：
     /// - `XSPIDER_ARIA2_PATH`：Aria2Next 二进制；给了就启用外派后端；
+    /// - `XSPIDER_ARIA2_DIR`：显式覆盖 aria2 默认下载目录；未设仍用 temp_dir；
     /// - `XSPIDER_STATE_DIR`：下载记录（重启对账）落在这里。
     ///   但**显式的 `--state-dir` 优先**（见 [`resolve_records_path`]）。
     async fn download_queue(&self) -> XResult<Arc<DownloadQueue>> {
@@ -526,17 +531,20 @@ impl Engine {
             .lock()
             .map(|log| log.since(start_seq))
             .unwrap_or((start_seq, Vec::new()));
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "done_reason": outcome.done_reason,
             "candidates": outcome.candidates,
             "posts": posts,
             "pages": outcome.pages,
             "raw_items": outcome.raw_items,
             "dropped": outcome.dropped,
-            "next_cursor": outcome.next_cursor,
             "seq": seq,
             "events": events,
-        }))
+        });
+        if let Some(cursor) = outcome.next_cursor {
+            result["next_cursor"] = Value::String(cursor);
+        }
+        Ok(result)
     }
 
     fn set_cookie(&self, params: &serde_json::Map<String, Value>) -> XResult<Value> {
@@ -1329,5 +1337,49 @@ mod tests {
             )),
             "--state-dir 必须决定下载记录路径（docs/07 §2.1 第 5 条）"
         );
+    }
+    #[tokio::test]
+    async fn exhausted_crawl_omits_next_cursor_at_the_dispatch_boundary() {
+        // 故障注入：从真实 fixture 派生一个无游标响应，不当作新增真实覆盖。
+        let dir =
+            std::env::temp_dir().join(format!("xspider-crawl-exhausted-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/user_medias/page1.json");
+        let mut fixture: Value =
+            serde_json::from_str(&std::fs::read_to_string(source).unwrap()).unwrap();
+        let instructions = fixture["response"]["body"]["data"]["user"]["result"]["timeline_v2"]
+            ["timeline"]["instructions"]
+            .as_array_mut()
+            .unwrap();
+        for instruction in instructions {
+            if let Some(entries) = instruction.get_mut("entries").and_then(Value::as_array_mut) {
+                entries.retain(|entry| entry["content"]["cursorType"].is_null());
+            }
+        }
+        std::fs::write(
+            dir.join("exhausted.json"),
+            serde_json::to_vec(&fixture).unwrap(),
+        )
+        .unwrap();
+        let engine = Engine::replay(&dir).unwrap();
+        engine
+            .call(
+                "auth.set_cookie",
+                &json!({"cookie":"ct0=fixture; auth_token=fixture"}),
+            )
+            .await
+            .unwrap();
+        let value = engine
+            .call("crawl.run", &one_media_page_params())
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(value["done_reason"], "exhausted");
+        assert!(
+            value.get("next_cursor").is_none(),
+            "dispatch must omit absent cursor: {value}"
+        );
+        assert!(!value["candidates"].as_array().unwrap().is_empty());
     }
 }

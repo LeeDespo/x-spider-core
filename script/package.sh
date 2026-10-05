@@ -91,6 +91,7 @@ ok "已放入 xspiderd / $CDYLIB / schema / LICENSE / NOTICE"
 if [ -n "${XSPIDER_ARIA2_PATH:-}" ] && [ -f "${XSPIDER_ARIA2_PATH}" ]; then
   ARIA2_VERSION="$("$XSPIDER_ARIA2_PATH" --version 2>/dev/null | head -1 || echo '未知版本')"
   cp "$XSPIDER_ARIA2_PATH" "$OUT/aria2next"
+  cp LICENSE.aria2 "$OUT/"
   {
     echo "本包内含的 Aria2Next"
     echo "  版本：${ARIA2_VERSION}"
@@ -100,7 +101,7 @@ if [ -n "${XSPIDER_ARIA2_PATH:-}" ] && [ -f "${XSPIDER_ARIA2_PATH}" ]; then
     ( cd "$OUT" && shasum -a 256 aria2next 2>/dev/null || sha256sum aria2next )
     echo
     echo "GPL-2.0 要求随二进制分发时提供许可证文本与源码获取方式；"
-    echo "完整的第三方声明见同目录的 NOTICE，源码见上方链接。"
+    echo "完整的 GPL-2.0 文本见同目录的 LICENSE.aria2；第三方声明见 NOTICE，源码见上方链接。"
   } > "$OUT/ARIA2NEXT-NOTICE.txt"
   ok "已携带 Aria2Next（${ARIA2_VERSION}）并附 ARIA2NEXT-NOTICE.txt"
 else

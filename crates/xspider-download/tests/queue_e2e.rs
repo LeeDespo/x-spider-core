@@ -225,6 +225,377 @@ async fn pause_keeps_the_partial_and_resume_finishes_the_download() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn rapid_pause_then_resume_serializes_the_old_backend_run() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("rapid-pause-resume");
+    let queue = DownloadQueue::start(config(&dir, 2))
+        .await
+        .expect("启动队列");
+    let size = 96 * 1024u64;
+    let dest = dir.join("rapid.bin");
+    queue
+        .enqueue(
+            EnqueueJob::new(
+                "job-rapid-resume",
+                server.url(&format!("/slow?size={size}")),
+                &dest,
+            )
+            .with_expect_size(size),
+        )
+        .await
+        .expect("入队");
+    for _ in 0..100 {
+        if std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false),
+        "暂停前应有真实 HTTP 字节"
+    );
+
+    // 不等待旧请求完成暂停收尾；恢复的新轮必须等它释放文件 ownership。
+    queue.pause("job-rapid-resume").expect("暂停");
+    queue.resume("job-rapid-resume").expect("立刻恢复");
+    wait_for_state(&queue, "job-rapid-resume", &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(size as usize));
+    assert!(
+        server.requests().iter().any(|request| {
+            request
+                .range
+                .as_deref()
+                .is_some_and(|range| range.starts_with("bytes="))
+        }),
+        "新一轮应续传旧轮留下的实际临时文件"
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn cancel_after_pause_waits_for_cleanup_before_explicit_resume() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("pause-cancel-resume");
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("启动队列");
+    let size = 64 * 1024u64;
+    let dest = dir.join("cancelled.bin");
+    queue
+        .enqueue(
+            EnqueueJob::new(
+                "job-pause-cancel",
+                server.url(&format!("/slow?size={size}")),
+                &dest,
+            )
+            .with_expect_size(size),
+        )
+        .await
+        .expect("入队");
+    for _ in 0..100 {
+        if std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    queue.pause("job-pause-cancel").expect("暂停");
+    queue.cancel("job-pause-cancel").expect("暂停后取消");
+    wait_for_state(&queue, "job-pause-cancel", &[JobState::Error]).await;
+    assert!(!xspider_download::part_path(&dest).exists());
+    assert_eq!(
+        queue.status("job-pause-cancel").unwrap().reason.as_deref(),
+        Some("cancelled")
+    );
+    queue
+        .resume("job-pause-cancel")
+        .expect("清理完成的取消任务可以显式重试");
+    wait_for_state(&queue, "job-pause-cancel", &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(size as usize));
+    let resumed = server.requests();
+    assert!(
+        resumed
+            .last()
+            .is_some_and(|request| request.range.is_none()),
+        "取消清理后显式重试必须从头开始：{resumed:?}"
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn cancel_cleanup_failure_keeps_intent_pending_until_a_retry_succeeds() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("cancel-cleanup-failure");
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("启动队列");
+    let mut events = queue.subscribe();
+    let dest = dir.join("cleanup-failure.bin");
+    queue
+        .enqueue(
+            EnqueueJob::new(
+                "job-cancel-cleanup-failure",
+                server.url("/slow?size=65536"),
+                &dest,
+            )
+            .with_expect_size(65536),
+        )
+        .await
+        .expect("入队");
+    for _ in 0..100 {
+        if std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    wait_for_state(&queue, "job-cancel-cleanup-failure", &[JobState::Active]).await;
+    let part = xspider_download::part_path(&dest);
+    let control = part.with_file_name(format!(
+        "{}.aria2",
+        part.file_name().unwrap().to_string_lossy()
+    ));
+    std::fs::create_dir(&control).expect("制造不能按文件删除的控制路径");
+
+    // Keep it Active while its backend is running. This reproduces a cleanup error
+    // after the runner exits: a later cancel must not mistake the stale Active
+    // snapshot for a live runner and leave the task stuck forever.
+    queue
+        .cancel("job-cancel-cleanup-failure")
+        .expect("请求取消");
+    let cleanup_failure = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(DownloadEvent::Failed { job_id, reason, .. }) = events.recv().await {
+                if job_id == "job-cancel-cleanup-failure" && reason == "cancel_cleanup_failed" {
+                    break;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(cleanup_failure.is_ok(), "应收到断点清理失败事件");
+    assert_eq!(
+        queue.status("job-cancel-cleanup-failure").unwrap().state,
+        JobState::Active,
+        "清理失败时不能宣告取消终态"
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("records.json")).expect("读取消 intent"))
+            .unwrap();
+    assert_eq!(
+        records["jobs"]["job-cancel-cleanup-failure"]["cancel_requested"], true,
+        "清理失败必须保留 durable intent"
+    );
+
+    std::fs::remove_dir(&control).expect("修复控制路径");
+    queue
+        .cancel("job-cancel-cleanup-failure")
+        .expect("再次取消应重试清理");
+    wait_for_state(&queue, "job-cancel-cleanup-failure", &[JobState::Error]).await;
+    assert!(!part.exists());
+    assert!(!control.exists());
+    assert_eq!(
+        queue
+            .status("job-cancel-cleanup-failure")
+            .unwrap()
+            .reason
+            .as_deref(),
+        Some("cancelled")
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Paused survives process restart as Paused; an explicit resume uses the actual part length.
+#[tokio::test]
+async fn paused_job_survives_restart_and_resumes_with_saved_parameters() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("paused-restart");
+    let size = 64 * 1024u64;
+    let dest = dir.join("paused.bin");
+    let mut job = EnqueueJob::new(
+        "job-paused-restart",
+        server.url(&format!("/slow?size={size}")),
+        &dest,
+    )
+    .with_expect_size(size);
+    job.requirements = Requirements {
+        resume: false,
+        segments: 7,
+    };
+    job.skip_if_present = true;
+    job.tag = Some("saved-tag".to_string());
+
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("启动队列");
+    queue.enqueue(job.clone()).await.expect("入队");
+    for _ in 0..100 {
+        if std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|m| m.len() >= 2 * 1024)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    queue.pause("job-paused-restart").expect("暂停");
+    wait_for_state(&queue, "job-paused-restart", &[JobState::Paused]).await;
+    let part = xspider_download::part_path(&dest);
+    let paused_bytes = std::fs::metadata(&part).unwrap().len();
+    assert!(paused_bytes > 0 && paused_bytes < size);
+
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("records.json")).expect("读任务记录"))
+            .unwrap();
+    let saved = &records["jobs"]["job-paused-restart"];
+    assert_eq!(saved["state"], "paused");
+    assert_eq!(saved["url"], job.url);
+    assert_eq!(saved["expect_size"], size);
+    assert_eq!(saved["requirements"]["resume"], false);
+    assert_eq!(saved["requirements"]["segments"], 7);
+    assert_eq!(saved["skip_if_present"], true);
+    assert_eq!(saved["tag"], "saved-tag");
+    queue.shutdown().await;
+
+    let requests_at_restart = server.requests().len();
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("重启队列");
+    let restored = queue.status("job-paused-restart").expect("恢复暂停快照");
+    assert_eq!(restored.state, JobState::Paused, "暂停任务重启后仍应暂停");
+    assert_eq!(restored.done, paused_bytes, "进度以磁盘临时文件为准");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(
+        server.requests().len(),
+        requests_at_restart,
+        "Paused 不应在启动时自动请求网络"
+    );
+    assert_eq!(
+        queue.enqueue(job).await.unwrap(),
+        AcceptedBy::AlreadyKnown,
+        "持久任务重放必须保持幂等"
+    );
+
+    queue.resume("job-paused-restart").expect("显式恢复");
+    wait_for_state(&queue, "job-paused-restart", &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(size as usize));
+    let requests = server.requests();
+    assert!(
+        requests
+            .iter()
+            .any(|request| { request.range.as_deref() == Some(&format!("bytes={paused_bytes}-")) }),
+        "重启后应从实际断点续传：{requests:?}"
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn resume_on_an_active_job_is_a_successful_noop() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("resume-active-noop");
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("启动队列");
+    let size = 20 * 1024u64;
+    queue
+        .enqueue(
+            EnqueueJob::new(
+                "job-active-noop",
+                server.url(&format!("/slow?size={size}")),
+                dir.join("active.bin"),
+            )
+            .with_expect_size(size),
+        )
+        .await
+        .expect("入队");
+    wait_for_state(&queue, "job-active-noop", &[JobState::Active]).await;
+    queue
+        .resume("job-active-noop")
+        .expect("active resume 应成功");
+    wait_for_state(&queue, "job-active-noop", &[JobState::Complete]).await;
+    let gets = server
+        .requests()
+        .into_iter()
+        .filter(|request| request.method == "GET")
+        .count();
+    assert_eq!(gets, 1, "active resume no-op 不能重复派发");
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A crash after Active reached disk recovers automatically and bases Range on the part file.
+#[tokio::test]
+async fn interrupted_active_record_recovers_from_the_disk_part() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("active-restart");
+    let size = 64 * 1024u64;
+    let dest = dir.join("active.bin");
+    let job_id = "job-active-restart";
+
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("启动队列");
+    queue
+        .enqueue(
+            EnqueueJob::new(job_id, server.url(&format!("/slow?size={size}")), &dest)
+                .with_expect_size(size),
+        )
+        .await
+        .expect("入队");
+    for _ in 0..100 {
+        if std::fs::metadata(xspider_download::part_path(&dest))
+            .map(|m| m.len() >= 2 * 1024)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    queue.pause(job_id).expect("停住以模拟进程中断");
+    wait_for_state(&queue, job_id, &[JobState::Paused]).await;
+    let paused_bytes = std::fs::metadata(xspider_download::part_path(&dest))
+        .unwrap()
+        .len();
+    queue.shutdown().await;
+
+    // 暂停记录和临时文件都来自真实下载；将持久状态改为 Active 模拟未能优雅收尾的进程中断。
+    let records_path = dir.join("records.json");
+    let mut records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    records["jobs"][job_id]["state"] = serde_json::json!("active");
+    std::fs::write(&records_path, serde_json::to_vec_pretty(&records).unwrap()).unwrap();
+
+    let requests_before_recovery = server.requests().len();
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("恢复 Active");
+    wait_for_state(&queue, job_id, &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(size as usize));
+    let requests = &server.requests()[requests_before_recovery..];
+    assert!(
+        requests
+            .iter()
+            .any(|request| { request.range.as_deref() == Some(&format!("bytes={paused_bytes}-")) }),
+        "Active 重启恢复应从临时文件长度续传：{requests:?}"
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **取消丢弃断点**（与暂停相对）。
 #[tokio::test]
 async fn cancel_discards_the_partial_and_marks_the_job_failed() {
@@ -266,6 +637,97 @@ async fn cancel_discards_the_partial_and_marks_the_job_failed() {
         "放弃语义要清掉断点（与暂停相对）"
     );
 
+    queue.shutdown().await;
+    let requests_before_restart = server.requests().len();
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("取消后重启");
+    let restored = queue.status("job-c").expect("取消记录应恢复为终态快照");
+    assert_eq!(restored.state, JobState::Error);
+    assert_eq!(restored.reason.as_deref(), Some("cancelled"));
+    assert_eq!(
+        queue
+            .enqueue(EnqueueJob::new(
+                "job-c",
+                server.url("/slow?size=20480"),
+                &dest,
+            ))
+            .await
+            .unwrap(),
+        AcceptedBy::AlreadyKnown,
+        "取消记录仍阻止重复 enqueue"
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        server.requests().len(),
+        requests_before_restart,
+        "取消不能在重启时自动复活"
+    );
+
+    // 明确的 resume 是调用方要求重试，取消已清理断点，所以必须从头开始。
+    queue.resume("job-c").expect("允许显式重试已取消任务");
+    wait_for_state(&queue, "job-c", &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(20_480));
+    let retry_requests = &server.requests()[requests_before_restart..];
+    assert!(
+        retry_requests
+            .iter()
+            .any(|request| request.method == "GET" && request.range.is_none()),
+        "显式 retry 应从 0 开始，而不是续接取消前断点：{retry_requests:?}"
+    );
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn pending_cancel_recovery_cleans_part_but_preserves_ambiguous_final_file() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("pending-cancel-restart");
+    let dest = dir.join("ambiguous.bin");
+    let original = b"possibly another task's completed file";
+    std::fs::write(&dest, original).unwrap();
+    let part = xspider_download::part_path(&dest);
+    std::fs::write(&part, b"partial bytes").unwrap();
+
+    // Simulate a crash after cancel intent was durable but before cleanup/terminal
+    // persistence. A final path cannot be proven to belong to this job after a
+    // restart, even if the old record says it began absent.
+    let record = xspider_download::RecordEntry {
+        state: JobState::Active,
+        dest_path: dest.display().to_string(),
+        bytes: 13,
+        url: server.url("/full?size=13"),
+        expect_size: Some(13),
+        completed_at: None,
+        tag: None,
+        requirements: Requirements::default(),
+        skip_if_present: false,
+        reason: None,
+        error: None,
+        cancel_requested: true,
+        destination_preexisting: Some(false),
+    };
+    let file = xspider_download::RecordsFile {
+        version: 1,
+        jobs: [("pending-cancel".to_string(), record)]
+            .into_iter()
+            .collect(),
+    };
+    std::fs::write(
+        dir.join("records.json"),
+        serde_json::to_vec_pretty(&file).unwrap(),
+    )
+    .unwrap();
+
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("恢复 pending cancel");
+    let restored = queue.status("pending-cancel").expect("恢复取消快照");
+    assert_eq!(restored.state, JobState::Error);
+    assert_eq!(restored.reason.as_deref(), Some("cancelled"));
+    assert_eq!(std::fs::read(&dest).unwrap(), original);
+    assert!(!part.exists(), "可确认属于临时断点的文件应清理");
+    assert!(server.requests().is_empty(), "pending cancel 不能自动复活");
     queue.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -342,6 +804,90 @@ async fn restart_is_reconciled_through_the_records_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Version 1 records written before the new optional fields still load with their defaults.
+#[tokio::test]
+async fn legacy_version_one_record_recovers_with_default_requirements() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("legacy-record");
+    let size = 4096u64;
+    let dest = dir.join("legacy.bin");
+    let part = xspider_download::part_path(&dest);
+    std::fs::write(&part, body_bytes(1024)).unwrap();
+    let records = serde_json::json!({
+        "version": 1,
+        "jobs": {
+            "job-legacy": {
+                "state": "active",
+                "dest_path": dest.display().to_string(),
+                "bytes": 12,
+                "url": server.url(&format!("/full?size={size}")),
+                "expect_size": size,
+                "completed_at": null,
+                "tag": "old-tag"
+            }
+        }
+    });
+    std::fs::write(
+        dir.join("records.json"),
+        serde_json::to_vec_pretty(&records).unwrap(),
+    )
+    .unwrap();
+
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("兼容旧格式");
+    wait_for_state(&queue, "job-legacy", &[JobState::Complete]).await;
+    assert_eq!(std::fs::read(&dest).unwrap(), body_bytes(size as usize));
+    let requests = server.requests();
+    assert!(
+        requests
+            .iter()
+            .any(|request| request.range.as_deref() == Some("bytes=1024-")),
+        "实际临时文件长度应覆盖旧记录里的陈旧 bytes：{requests:?}"
+    );
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("records.json")).unwrap()).unwrap();
+    assert_eq!(saved["jobs"]["job-legacy"]["requirements"]["resume"], true);
+    assert_eq!(saved["jobs"]["job-legacy"]["requirements"]["segments"], 1);
+    assert_eq!(saved["jobs"]["job-legacy"]["skip_if_present"], false);
+    assert_eq!(saved["jobs"]["job-legacy"]["tag"], "old-tag");
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A failed initial record write is returned to the caller and the task is never dispatched.
+#[tokio::test]
+async fn enqueue_does_not_accept_or_dispatch_when_record_write_fails() {
+    let server = FixtureServer::start().await;
+    let dir = workdir("record-write-failure");
+    let records_path = dir.join("records.json");
+    std::fs::create_dir(&records_path).unwrap();
+    let mut cfg = config(&dir, 1);
+    cfg.records_path = Some(records_path);
+    let queue = DownloadQueue::start(cfg).await.expect("启动队列");
+
+    let result = queue
+        .enqueue(
+            EnqueueJob::new(
+                "job-no-record",
+                server.url("/full?size=1024"),
+                dir.join("x.bin"),
+            )
+            .with_expect_size(1024),
+        )
+        .await;
+    assert!(result.is_err(), "入队必须暴露记录写入失败");
+    assert!(
+        queue.status("job-no-record").is_none(),
+        "失败任务不能进入队列"
+    );
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(server.requests().is_empty(), "写盘失败后不应发下载请求");
+
+    queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 完整性失败要落进记录与事件，而不是悄悄"成功"。
 #[tokio::test]
 async fn integrity_failure_surfaces_in_state_events_and_cleanup() {
@@ -370,6 +916,31 @@ async fn integrity_failure_surfaces_in_state_events_and_cleanup() {
     );
     assert!(!dest.exists(), "校验失败不该留下文件");
 
+    queue.shutdown().await;
+    let requests_before_restart = server.requests().len();
+    let queue = DownloadQueue::start(config(&dir, 1))
+        .await
+        .expect("错误任务重启");
+    let restored = queue.status("job-i").expect("错误快照应恢复");
+    assert_eq!(restored.state, JobState::Error);
+    assert_eq!(restored.reason.as_deref(), Some("integrity_failed"));
+    assert_eq!(
+        server.requests().len(),
+        requests_before_restart,
+        "Error 不自动重试"
+    );
+    assert_eq!(
+        queue
+            .enqueue(EnqueueJob::new(
+                "job-i",
+                server.url("/full?size=1024"),
+                &dest,
+            ))
+            .await
+            .unwrap(),
+        AcceptedBy::AlreadyKnown,
+        "错误记录继续参与幂等"
+    );
     queue.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -410,6 +981,25 @@ async fn finished_jobs_can_be_pruned() {
         "但记录要留着——它是「下过了」的依据（docs/02 §E1）"
     );
 
+    queue.shutdown().await;
+    let requests_before_restart = server.requests().len();
+    let queue = DownloadQueue::start(config(&dir, 2))
+        .await
+        .expect("修剪后重启");
+    assert!(queue.list().is_empty(), "完成记录不重建内存快照");
+    assert_eq!(queue.record_count(), 3, "prune 保留完成记录以供幂等");
+    assert_eq!(
+        queue
+            .enqueue(EnqueueJob::new(
+                "p0",
+                server.url("/full?size=512"),
+                dir.join("p0.bin"),
+            ))
+            .await
+            .unwrap(),
+        AcceptedBy::AlreadyKnown
+    );
+    assert_eq!(server.requests().len(), requests_before_restart);
     queue.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

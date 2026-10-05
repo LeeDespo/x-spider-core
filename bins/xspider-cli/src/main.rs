@@ -165,7 +165,7 @@ async fn drive(side: &mut Sidecar, args: &Args) -> Result<i32, RpcError> {
         None => {
             eprintln!(
                 "live 模式需要凭据。示例：\n\
-                 \x20 export XSPIDER_COOKIE=\"$(defaults read moe.keli.xspider.mac app.cookieString)\"\n\
+                 \x20 export XSPIDER_COOKIE=\"<从已授权登录会话取得的完整 cookie>\"\n\
                  （只进不出：组件不打日志、不回传，本 CLI 也不写文件）"
             );
             return Ok(2);

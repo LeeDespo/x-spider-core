@@ -4,7 +4,7 @@
 > 机器可读版本：[`contract/xspider.schema.json`](../contract/xspider.schema.json)——
 > 外壳不必读 Rust 代码，也不必读这份文档，读那份 schema 就能对接。
 >
-> 契约版本：**1.5.1**（由 `xspider_version()` 返回）
+> 契约版本：**1.5.2**（由 `xspider_version()` 返回）
 
 ---
 
@@ -13,7 +13,7 @@
 只有三个 C ABI 函数。C ABI 是唯一跨编译器、跨语言稳定的接口面。
 
 ```c
-char* xspider_version(void);                            // "1.5.1"
+char* xspider_version(void);                            // "1.5.2"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力都走这一个入口
 void  xspider_free(char* ptr);                          // 释放上面两个函数返回的字符串
 ```
@@ -45,7 +45,7 @@ void  xspider_free(char* ptr);                          // 释放上面两个函
 | sidecar + stdio JSON Lines | 每行一个请求 / 一个响应 | 备选 |
 | cdylib | 调 `xspider_call` | 次形态 |
 
-**主形态是 sidecar 有实测依据**，不是偏好：一旦外壳启用 hardened runtime（公证的前提），
+**macOS 主形态是 sidecar 有实测依据**，不是偏好：一旦外壳启用 hardened runtime（公证的前提），
 `dlopen` 任何 ad-hoc 签名的 dylib 都会被拒（`mapping process and mapped file have different Team IDs`），
 而 sidecar 两个进程各自签名、互不验证。
 
@@ -74,7 +74,7 @@ HTTP 与 stdio 的请求体形状相同（`id` / `params` / `token` 都可省）
 `--port 0` 时绑定随机端口，并在 **stdout** 打印一行后 flush：
 
 ```
-ready {"port":49152,"token":"…","version":"1.5.1","build":"0.1.0"}
+ready {"port":49152,"token":"…","version":"1.5.2","build":"0.1.0"}
 ```
 
 日志一律走 stderr。外壳读这一行即完成握手（并同时拿到契约版本）。
@@ -96,7 +96,7 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ## 3. method 一览
 
-### 3.1 已实现（1.5.1）
+### 3.1 已实现（1.5.2）
 
 | method | 请求 | 响应 |
 |---|---|---|
@@ -138,11 +138,11 @@ HTTP 状态只表达"传输层发生了什么"：
 
 ### 3.3 已登记、**尚未实现**（调用会得到 `invalid_request`）
 
-> 列在这里是为了让外壳提前看到形状，**不代表现在可调用**。
+> 这里只登记预留名称，形状尚待设计；不在 schema 或能力清单中，**不代表现在可调用**。
 
 `dl.plan` / `dl.report`（`host` 逃生舱，给 iOS 后台 `URLSession` 一类平台强约束）。
 
-它们的形状见 `docs/01-ARCHITECTURE.md` §5。**写操作 `fetch.mutate` 已实现**（1.3.0）。
+用途见 `docs/01-ARCHITECTURE.md` §5，尚无字段级形状。**写操作 `fetch.mutate` 已实现**（1.3.0）。
 
 ---
 
@@ -376,14 +376,17 @@ HTTP 状态只表达"传输层发生了什么"：
 | `error` | 结束但没成功。`reason` + `error.code` 说明原因（`cancelled` 也在这里） |
 | `complete` | 下好且**校验通过**（或 `skipped`：文件已在且大小对） |
 
+- `dl.resume` 对 waiting/active 返回成功且不重复派发；paused/error 可显式重试（含取消后从零重试），complete 拒绝。取消清理尚在进行时不能恢复；
 - **暂停 vs 取消**：暂停**保留**断点（`dl.resume` 会从断点继续）；
   取消**丢弃**断点并清掉临时文件（目标目录保持干净）；
+  清理失败时保留取消意图，可在修复目录后再次 `dl.cancel`。崩溃恢复保留无法确认归属的完整目标文件，避免误删；
 - **`state-dir` 就是下载记录所在目录**：sidecar 的 `--state-dir` 与
   `XSPIDER_STATE_DIR` 都决定它（**flag 优先**），记录**带 `version` 字段**，
   版本对不上就不猜旧格式、当作没有记录；
 - **重启对账**：外壳用 `dl.list()` 与自己的记录对账。
-  ⚠️ **已知缺口**：当前只有**已完成**的任务才落记录，未完成 / 暂停 / 失败的断点
-  尚未持久化——"重启后续传未完成任务"这条**还没有接线**（见 `docs/ROADMAP.md` 风险台账）；
+  配置状态目录后，入队与状态转换均落记录；重启时 waiting/active 恢复为 waiting，paused 仍为 paused，error 仍为 error；
+  外壳若不希望自动恢复在飞任务，应在启动对账时暂停它们。取消任务重启后仍是取消，不自动重试；
+  未配置目录时仍只使用内存。Unix sidecar（含 macOS / Android）对 flag 或环境变量指定的状态目录取得独占锁；
 - **记录是组件写的**（它是完成事件的产生者）——两个写者必然出现
   "文件下好了但记录没写"的静默不一致。
 
@@ -408,14 +411,14 @@ HTTP 状态只表达"传输层发生了什么"：
 - `integrity` **只有两种形状**：`{result:"verified",expected,actual}`（服务端给过大小）
   与 `{result:"unverified",actual}`（没给过，**不能声称"校验通过"**，`docs/02` §E2）；
 - `reason` 是**结构化短标签**（`cancelled` / `not_found` / `integrity_failed` / `truncated` /
-  `transport` / `disk_full` / `upstream` / `invalid`…），按它做判断，**不要看文案**；
+  `transport` / `auth_required` / `disk_full` / `upstream` / `invalid`…），按它做判断，**不要看文案**；
 - **`since` 传 0 是合法的**。这条特意写在这里，因为它曾经是错的：实现把 0 当非法值挡掉了，
   而契约（本文）说的是"从 0 开始"——**契约与实现不一致时，错的是实现**
   （`docs/06-CONSUMER-INTEGRATION.md` §4.1）；
 - **节流是调用方的事**：进度事件按片发，外壳自己决定多久刷新一次界面。
 
 **为什么不是流**：JSON-RPC 的请求/响应包络与 C ABI 都不支持流；用"带游标的增量"
-在三种形态下行为完全一致（进程内还能用 `subscribe()` 拿真流）。见 `docs/DECISIONS.md` ADR-029。
+在三种形态下使用同一载荷（`subscribe()` 仅为内部 Rust API，C ABI 消费方仍轮询）。见 `docs/DECISIONS.md` ADR-029。
 
 ### 4.14 爬取（`crawl.run`）
 
@@ -427,7 +430,7 @@ HTTP 状态只表达"传输层发生了什么"：
                             "empty_page_limit": 5 } } }
 ```
 
-- 产出**候选清单**（`candidates[]`：url / ext / size_hint / day / screen_name），
+- 产出**候选清单**（`candidates[]`：key / post_id / media_id / kind / url / ext / size_hint / created_at / day / screen_name），
   外壳决定下不下、叫什么名、放哪儿，再调 `dl.enqueue`——**两个组件不直接对接**；
 - **同时给出 `posts[]`**（同一批推文的**完整 DTO**，按服务端顺序、按 id 去重）。
   候选是**有损**的，只有 url 与几个标量；而按用户的文件名模板命名、把任务写进外壳自己的
@@ -438,7 +441,7 @@ HTTP 状态只表达"传输层发生了什么"：
 - **`wanted_keys` 进契约、`excluded_keys` 不进**：前者改变翻页终止条件（省请求，成本相关）；
   后者只是产品语义，外壳在候选上过滤即可，零额外请求；
 - **`limits.empty_page_limit` 只是辅助上限**（默认 5）。主终止判据是**时间轴推进**
-  （`oldest_seen < since`）——否则停更一两个月的账号会被误判成"没有内容"；
+  （`oldest_seen < since`，或调用方指定 `limits.stop_when_older_than` 的 UTC 日期阈值）——否则停更一两个月的账号会被误判成"没有内容"；
 - **没有 `created_at` 的推文放行**，不会因为解析不到时间而被丢掉；
 - `until` **含当天**；客户端筛选按 **UTC 日期**比较（边界日与本地日历可能差一天，
   见 `docs/02` §D3）；
@@ -449,15 +452,18 @@ HTTP 状态只表达"传输层发生了什么"：
   只在 `message` 里附"第 N 页"。**不会**被吞成 `internal`——否则外壳分不清
   "重新登录 / 退避 / 参数写错 / 组件 bug"（1.5.1）；
 - **`seq` / `events` 只覆盖本次调用**：`events` 是**本次 `crawl.run` 期间**产生的事件，
-  不含历史轮次；`seq` 是进程内单调递增的事件序号，**不回退**（下一次调用的 `seq` 不小于上次，1.5.1）；
+  不含历史轮次；每条为 `{seq, event}`，`event.kind` 为 page / candidates / done。
+  page 带 index/raw_count/kept_count 和可选 cursor/oldest_at；candidates 带 index/items；done 带 reason。
+  `dropped` 含 dropped_duplicate / dropped_by_date / dropped_by_type / dropped_no_media / dropped_name 五个计数。
+  `seq` 是进程内单调递增的事件序号，**不回退**（下一次调用的 `seq` 不小于上次，1.5.1）；
 - **取消有两种可观测形态**：在页边界察觉取消 → 正常返回 `done_reason: "cancelled"`；
   取页请求在飞行中被取消 → 返回 `error.code: "cancelled"`。两者都表示"调用方取消"，
   不是故障，外壳对两者都按取消处理。
 
 | `done_reason` | 含义 |
 |---|---|
-| `exhausted` | 服务端没有更多了（游标为 null） |
-| `time_progressed` | 客户端筛选的时间轴已推进到 `since` 之前（**主判据**） |
+| `exhausted` | 服务端没有更多了（`next_cursor` 键省略） |
+| `time_progressed` | 客户端筛选的时间轴已推进到 `since` 或 `limits.stop_when_older_than` 之前（**主判据**） |
 | `empty_pages` | 连续空页达到辅助上限 |
 | `cursor_stuck` | 服务端回吐了同一个游标（防原地空转刷爆配额） |
 | `wanted_collected` | `wanted_keys` 收齐，提前终止 |
@@ -547,3 +553,11 @@ HTTP 状态只表达"传输层发生了什么"：
 
 `crates/xspider-ffi/tests/contract_guard.rs` 会断言 schema 里的 `method` 枚举
 与代码里登记的 method **集合相等**——文档与实现不允许各说各话。
+
+## 9. 安卓部署边界（1.5.2）
+
+现有 26 个 method 与三个 C ABI 函数保持不变。安卓先使用 sidecar + 内置 HTTP 下载后端；
+构建、APK 部署、后台服务、存储与 JNI 备选接入见 [`10-ANDROID-INTEGRATION.md`](10-ANDROID-INTEGRATION.md)。
+`XSPIDER_ARIA2_DIR` 可显式指定外派后端的可写默认下载目录；未设置仍使用系统临时目录。
+stdio 的 ready 行在 stderr，无 port/token，请求串行执行；HTTP 支持并行请求及断开取消。
+安卓额外启用内置公共 TLS 信任根，其他平台保留原来的系统信任根；不关闭 TLS 校验。

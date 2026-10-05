@@ -75,7 +75,7 @@
 | `TwitterAPI.swift` 里的 `mapTwitterPost` / `mapTwitterMedias` / `extract*` | 取数组件的 DTO 映射（含两种用户结构、置顶条目、长推文正文、头像归一化） |
 | `Services/Aria2Engine.swift` + `Aria2RPCClient.swift` | 下载组件的外派后端 |
 | `Stores/DownloadStore.swift` 的调度/重试/完整性/临时文件 | 下载队列（`job_id` 幂等、epoch、完整性校验、落盘字节数判据） |
-| `Services/FileIntegrity.swift`（大小/魔数/HTML 误页判定） | 下载队列（大小判据；**魔数判定尚未搬**，见 §5.4） |
+| `Services/FileIntegrity.swift`（大小/魔数/HTML 误页判定） | 下载队列（大小判据；**魔数判定尚未搬**，见 §5 第 4 条） |
 | TS 侧 `src/twitter/api.ts` / `src/utils/aria2.ts` / `src/stores/download.ts` | 同上 |
 
 ### 3.2 必须保留下来的（组件不碰，这是分工）
@@ -99,7 +99,7 @@
 3. **凭据注入**：Keychain → `auth.set_cookie`。**只进不出**：不落盘、不打日志、不进 UI 日志。
 4. **代理**：每次变化都调 `net.set_proxy`（本机实测端口一天变好几次）。
    实测：改了代理之后取数与下载**都会跟着换**（ADR-035），不需要重建队列。
-5. **限流设置**：启动时 `net.set_limits` 一次（`cdn_concurrency` 目前只在队列创建时生效，见 §5.5）。
+5. **限流设置**：启动时 `net.set_limits` 一次（`cdn_concurrency` 目前只在队列创建时生效，见 §5 第 5 条）。
 6. **aria2 路径**：`XSPIDER_ARIA2_PATH` 或配置里指定（ADR-005 的 B 方案）。
    不配也能跑（自动降级到内置后端），但那样就少了多连接。
 7. **对 `transport` 做有界重试**：组件内部每次都重试 3 次（150ms/450ms 退避），
@@ -137,7 +137,7 @@ CLI 于是**在下载已经跑起来之后**才失败（前 3 个任务已入队
 （`"sidecar" | "cdylib"`）。这样外壳不必"因为我是我"而硬编码能力差异，而是问一句
 "我是不是 sidecar"；`system.shutdown` 仍然只属于传输层、不进能力清单。
 
-### 4.3 `dl.events` 的事件形状在 schema 里没有约束
+### 4.3 `dl.events` 的事件形状在 schema 里没有约束（历史问题，现已修）
 
 schema 里写的是 `"events": { "items": { "type": "object" } }`——**等于没说**。
 `kind`（`progress` / `completed` / `failed` / `skipped`）与各字段只在 `CONTRACT.md` 的散文里。
@@ -145,7 +145,8 @@ CLI 是照着散文写的，写对了，但机器可读的那份契约在这里�
 
 **修法（本轮已做）**：schema 增加 `$defs/downloadEvent`（`oneOf` 四种，各自
 `additionalProperties: false`），并由契约守卫测试盯着"事件字段与 schema 一致"。
-`CONTRACT.md` §4.13 也补上 `kind` 这个判别字段。
+`CONTRACT.md` §4.13 也补上 `kind` 这个判别字段。`crawl.run` 事件另有明确的
+`crawlStats` / `crawlEvent` / `stampedCrawlEvent` schema 定义，见 `CONTRACT.md` §4.14。
 
 ### 4.4 探测失败不能当致命错误（CLI 自己先写错过）
 
@@ -161,21 +162,22 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
 | 引擎选择 | 外壳不再按 `estimatedSize`（码率×时长）判断，改由组件按 `requirements.segments` 与**探测到的真实大小**决定。那个估算实测差 5.25 倍（`docs/02` §E9），本来就只能当粗判。 |
 | 置顶推文 | 组件会多返回一条（`TimelinePinEntry`，`docs/02` §H3）——参考实现没处理这条指令。UI 若不想显示置顶，自己按 `id` 过滤即可。 |
 | 头像 | 组件给的是 `_bigger` 尺寸的归一化 URL，外壳那两行替换可以删。 |
-| 完整性失败 | **已定：魔数/HTML 误页判定留在外壳**（`FileIntegrity` 不搬进组件）。组件负责"字节数与服务端声明一致"，外壳在收尾时再做一次"这真的是张图/这段真的是 mp4 吗"。理由见 §5.4。 |
+| 完整性失败 | **已定：魔数/HTML 误页判定留在外壳**（`FileIntegrity` 不搬进组件）。组件负责"字节数与服务端声明一致"，外壳在收尾时再做一次"这真的是张图/这段真的是 mp4 吗"。理由见 §5 第 4 条。 |
 
 ---
 
-## 5. 未决与建议
+## 5. 已决事项与仍待处理
 
 > **接口细节与调用时序以 [`07-API-REFERENCE.md`](07-API-REFERENCE.md) 为准；
 > 组件与参考实现的能力对照以 [`08-CAPABILITY-MAP.md`](08-CAPABILITY-MAP.md) 为准。**
-> 这一节只留**还没定的产品决定**。
+> 下列记录区分已决事项、已接线事项与仍待处理的接口约束。
 
-1. **`net.probe_size` 与自动探测的默认值**（ADR-032/033）：组件默认在下载前探一次大小
-   （每个未知大小的媒体多一次 CDN 请求），参考实现刻意不探。`XSPIDER_PROBE_SIZE=0` 可关。
+1. **`net.probe_size` 与自动探测默认值**（ADR-032/033）：**已决定**组件默认在下载前探测
+   未知大小（每个未知大小的媒体多一次 CDN 请求）；参考实现刻意不探。`XSPIDER_PROBE_SIZE=0` 可关。
 2. ~~`system.version` 加 `transport` 字段~~ → **已做**（1.3.0）。
-3. **双写记录**：参考实现的 `.downloaded.json` 与组件的 `downloads.json` 是两份。
-   分工是清楚的（组件写它的、外壳写它的），但接入时要明确"谁负责在重启后对账"。
+3. **双写记录与重启对账**：分工已明确，组件持有自己的 version 1 持久记录，外壳保留产品历史；
+   外壳启动时以 `dl.list()` 对账。队列恢复规则见 `07` §2.2；Waiting/Active 恢复为 waiting，
+   Paused 保持暂停，Error（含取消）不会自动重试。
 4. ~~魔数/HTML 误页判定搬进组件~~ → **已决定：不搬**（2026-10-01）。
    `FileIntegrity` 里的 `looksLikeTextError` / `hasKnownImageMagic` 留在外壳，理由是**分工**：
    组件回答"**字节对不对**"（这是它与服务端之间的事实，跨端一致、可离线测）；
@@ -184,7 +186,7 @@ CLI 最初把 `net.probe_size` 的任何错误都当失败，于是**一次探�
    两者都不省：组件那条挡住截断，外壳那条挡住"CDN 用 HTML 错误页凑够字节数"。
    参考实现原本就是两条都做（`FileIntegrity.verify` 在 `finalizeDownload` 里），
    接入后这个位置不变，只是它前面的字节数校验改由组件负责。
-5. **`net.set_limits` 的并发上限**只在队列创建时生效（信号量不能缩容）。若外壳要"运行中调并发"，需要再改。
+5. **`net.set_limits` 的并发上限**只在队列创建时生效（信号量不能缩容）。若外壳要"运行中调并发"，需要再改；这是本节唯一仍待决定的产品行为。
 
 ### 5.1 审计出来的两处，都在**外壳**侧 —— **均已修**
 
