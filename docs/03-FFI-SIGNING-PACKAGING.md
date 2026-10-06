@@ -126,11 +126,16 @@ Android 构建检查与打包入口见 §6 和 docs/10；它们不等于设备�
 | macOS arm64 / x86_64 | 本机编译 + `lipo` 合 universal | 合并后必须重新签名 |
 | Linux x86_64 / aarch64 | `cargo-zigbuild` 或 `cross`（工具链参考，未承诺交付） | glibc 版本后缀有诸多 caveat；`crt-static` 不支持 |
 | Windows x86_64 / arm64 | Windows 原生构建（工具链参考，未承诺交付） | `cargo-xwin` 需接受 MSVC 许可、要 clang，调试成本高 |
-| Android aarch64 / x86_64 | NDK 27.3.13750724、API 23；两 ABI 实际链接打包通过 | arm64 API 36 普通应用 UID 的 HTTP/stdio/C ABI 与公开 TLS 验证通过；16 KB 仅对齐检查，完整边界见 docs/10 §8 与 ADR-042 |
+| Android aarch64 / x86_64 | NDK 27.3.13750724、API 23；两 ABI 实际链接打包通过 | arm64 API 36 普通应用 UID 的 HTTP/stdio/C ABI 与公开 TLS 验证通过；16 KB 仅对齐检查，完整边界见 docs/10 §8 与 ADR-042；交叉编译假信号与验收层次见 §8 坑 43 / 坑 45 |
 
 **两个会拖死交叉编译的选型**（写在 `Cargo.toml` 之前就要定）：
 1. **HTTP 栈用 `reqwest` + `rustls-tls`，不要 `native-tls`**——否则 Windows/Linux 交叉编译要处理 OpenSSL；
 2. **避免依赖需要 C 工具链的 crate**；确实需要时优先选纯 Rust 实现。
+
+**工具链接线（详见 §8 坑 1 / 坑 43）**：交叉编译报 `error[E0463]: can't find crate for 'core'`
+未必是 target 没装——先确认 cargo 实际抓的是哪个 rustc（Homebrew 的 cargo / rustc 是真实二进制，
+不读 `rust-toolchain.toml`、只带 host std）。Android 的 PATH 前置与 `CC_*` / `AR_*`
+（NDK clang / llvm-ar）接线已固化在 `script/android-build.sh`，复跑证据见 `docs/10-ANDROID-INTEGRATION.md`。
 
 **Windows 特有事项**：路径分隔符与大小写不敏感（去重/改名逻辑要小心）、
 本地 socket/端口可能触发防火墙提示、DLL 加载不校验签名但需要 Authenticode 才不受 SmartScreen 干扰。
@@ -144,3 +149,72 @@ Android 构建检查与打包入口见 §6 和 docs/10；它们不等于设备�
   `组件文件未签名或被隔离：请执行 xattr -dr com.apple.quarantine <路径>`
   ——不要让功能静默失灵（未签名二进制表现为 137 静默死亡，最难排查）。
 - 启动自检项：架构、签名状态、契约版本、依赖的 aria2 二进制是否可用与版本是否匹配。
+
+---
+
+## §8 踩坑记录（2026-10-06 迁入自 AGENTS.md，保留原编号）
+
+> 格式沿用 AGENTS.md「踩坑记录」：**现象 → 根因 → 解法（含证据）**。
+> 以下 4 条是「工具链 / 打包」类，自根目录 `AGENTS.md` 迁入；编号与标题句保持原样，
+> 正文保留全部实测证据（数字、路径、错误文本），只做轻度顺滑。
+> 交叉编译的目标矩阵与平台注意事项见上文 §6；Android 的验收记录与「仍未验收」边界见
+> [`10-ANDROID-INTEGRATION.md`](10-ANDROID-INTEGRATION.md) §8。
+
+### 1. `rust-toolchain.toml` 写死具体版本会把工具链装成半成品。
+
+- 现象：写 `channel = "1.98.1"` 后，rustup 首次构建报
+  `error: could not remove 'component' file: .../manifest-rustfmt-preview-aarch64-apple-darwin`
+  与 `could not rename 'component' file ... Directory not empty (os error 66)`，
+  工具链处于"半装"状态；之后每次 `cargo` 调用都会先尝试同步 channel（明显变慢）。
+- 根因：代理网络下下载中断，rustup 的组件安装不是原子的，回滚也失败了。
+- 解法：写 `channel = "stable"`（本机实测 = `rustc 1.98.1 (48a229cea 2026-09-01)`），
+  把实测版本写进文件注释；可复现性由 `Cargo.lock` + 注释共同保证。见 ADR-011
+  （现状即 `rust-toolchain.toml` 的 `channel = "stable"` + 注释里的实测版本）。
+- 顺带：**Homebrew 的 cargo 不读 `rust-toolchain.toml`**（它是真实二进制，不是 rustup 垫片），
+  所以要用 `~/.cargo/bin/cargo`。这一条不写下来，下一轮 agent 会以为锁文件没生效。
+  它与坑 43 同源：PATH 里排在前面的 Homebrew rustc 只带 host std，交叉编译时第一个撞上。
+
+### 9. cdylib 的产物名默认取 crate 名。
+
+- 现象：`crates/xspider-ffi` 产出 `libxspider_ffi.dylib`，而文档约定的是 `libxspider.dylib`（即 §5 产物树里的名字）。
+- 解法：`[lib] name = "xspider"`，依赖方写 `use xspider::...`。打包时不必再改名。见 ADR-012。
+
+### 43. 交叉编译时 cargo 经 PATH 找到的 rustc 不是 rustup 工具链的——"安卓编译不过"可能是假信号。
+
+- 现象：`cargo check --target aarch64-linux-android` 报
+  `error[E0463]: can't find crate for 'core'`（提示 target 未安装），
+  但 `rustup target list --installed` 明明列着 4 个 android target，
+  `~/.rustup/.../rustlib/aarch64-linux-android/lib/` 里 libcore/libstd 一个不少。
+- 根因：cargo 是从 **PATH** 里找 `rustc` 的，而 rustup 垫片 exec cargo 时**不会替子进程重排 PATH**。
+  本机 `/opt/homebrew/bin` 排在 `~/.cargo/bin` 前面（踩坑 1 的另一半），
+  于是 cargo 实际用的是 **Homebrew 的 rustc**——它与 rustup 工具链同为 1.98.1（commit 相同），
+  但**只带 host 的 std、没有任何交叉 target 的 std**。host 构建永远撞不到这一点
+  （两条路径的 rustc 同版本、host std 都有），所以三条质量门从来没暴露过；
+  只有第一次交叉编译才会炸，且报错文案（"target may not be installed"）会把人引向重装 target 的死胡同。
+- 解法（两行，均已实测通过）：① `PATH="$HOME/.cargo/bin:$PATH"` 后再跑 cargo，
+  或显式 `RUSTC` 指到工具链真身；② C 依赖（ring 经 cc-rs）需要 NDK clang，
+  用环境变量接上即可、不必改仓库：
+  `CC_aarch64_linux_android=…/aarch64-linux-android24-clang` 与 `AR_aarch64_linux_android=…/llvm-ar`。
+  当前仓库已把 Android NDK 编译和打包收进 `script/android-build.sh` / CI；本地复跑证据与设备验收状态
+  见 `docs/10-ANDROID-INTEGRATION.md`，不能把原始 E0463 当作产品代码编译失败。
+- 教训：**"编译不过"要先分清是代码不行还是工具链拿错了**——E0463 指向 sysroot，
+  先查 `cargo` 实际抓的哪个 rustc（`cargo -vV` 只看 cargo 不够，要看构建脚本里 rustc 的来历），
+  再怀疑 target 没装。诊断时用 `rustc --target <t>` 直编一个空文件当探针，
+  rustc 过而 cargo 不过 = PATH 顺序问题。**安卓落地的构建配置（PATH 约定或 `.cargo/config.toml`）
+  要落盘进 docs/03 与打包脚本，不能靠"这台机器恰好能用"。**
+  （已落盘：`script/android-build.sh` 启动即前置 `$HOME/.cargo/bin` 并导出 `CC_*` / `AR_*`；
+  目标矩阵见 §6。）
+
+### 45. Android 打包验收必须用普通应用 UID 和当前 targetSdk，adb shell 成功不是部署证明。
+
+- 现象：最初测试 Manifest 的 targetSdk 是 28，不能覆盖报告中 targetSdk≥29 的可写目录执行限制；
+  Instrumentation 直接调用不存在的 `getArguments` 也编译失败。
+- 根因：构建成功、shell 执行成功与 APK 安装后执行是三个不同层次；
+  测试框架的 onCreate 还必须显式 start 才触发 onStart。
+- 解法：`script/android-smoke.sh`（实现在 `script/android-smoke.py`，测试 APK 的 Manifest
+  模板为 `targetSdkVersion=35`）生成无 UI 临时 APK，从安装后的 `nativeLibraryDir` 执行。
+  API 36、普通应用 UID 实测 HTTP 握手与 fixture 回放、本地 32,791 字节下载、stdio、C ABI 通过；
+  公开 TLS 需 `XSPIDER_LIVE=1`，默认不联网；测试 APK 与新增的 `adb reverse` 映射用完即清理。
+- 证据边界：模拟器页大小 4096，即使 ELF `LOAD=0x4000`、APK `zipalign -P 16` 全绿，
+  也不能说真实 16 KB 设备已验收；账号 GraphQL、Doze 和 Android Aria2Next 同样单独验收。
+  本轮逐项实测记录与「仍未验收」清单见 `docs/10-ANDROID-INTEGRATION.md` §8。

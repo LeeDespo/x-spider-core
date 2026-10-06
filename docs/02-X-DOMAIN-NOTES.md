@@ -14,7 +14,8 @@ X 的 GraphQL 端点对 `queryId` / `features` / `variables` 的格式极其敏�
 **行为参照顺序**：
 1. `MiningCattiva/x-spider` 的上游 TypeScript 原版（GPL-3.0）；
 2. `x-spider-mac` 接入组件之前的历史实现，尤其是 `backup/pre-component-integration`；
-3. 组件内相应的 fixture、测试与踩坑记录。
+3. 组件内相应的 fixture 与测试，以及本文件的踩坑记录（§G–§I；X 领域条目在 §I，
+   其余主题的踩坑总索引见 `docs/05`）。
 
 已接入组件的 `x-spider-mac` 当前代码主要做契约 DTO 到应用模型的映射；需要核对历史行为时，
 只读历史/备份，不修改外壳仓库，除非任务明确把它列入范围。
@@ -54,8 +55,13 @@ GET 一律 404。**且这个 404 与 queryId 无关**——实测新旧两个 qu
 
 **A7. 写操作的"成功"要看返回体：X 对失败的突变回的是 HTTP 200 + `errors[]`。**
 只看状态码会把"没做成"报成成功，界面上留下一个"已点赞"的假象而服务端什么都没发生。
-判定用 `errors[].code`（数字）：144 = 没有这条推文（GraphQL）、34 = 页面不存在（v1.1）、
-32/89/99/215 = 认证类。**没有 code 的错误**一律归 upstream 并把数字带出来。
+（这条是测试抓出来的：`fetch.mutate` 对一条不存在的推文曾返回 `{"ok":true}`。）
+判定用 `errors[].code`（数字），实现见 `ensure_mutation_succeeded`
+（`crates/xspider-fetch/src/social.rs`）：144 = 没有这条推文（GraphQL）、
+34 = 页面不存在（v1.1）→ `not_found`；32/89/99/215 = 认证类 → `unauthorized`；
+其它（含**没有 code** 的错误）→ `upstream` 并把数字码带出来；
+`data` 与 `errors` 都没有 → `parse`（"X 改版了"的信号）。
+**"2xx 就是成功"这条直觉在写操作上不成立，在只读端点上也要小心**（§G 的两种形态就是证据）。
 
 **A8. 推文 id 必须是 int64 能表示的。** 实测：给一个 23 位的 id，X 自己的
 `strconv.ParseInt` 先炸了，返回的是"value out of range"（HTTP 200，**没有 code**），
@@ -123,6 +129,8 @@ X 偶发回吐与上一页相同的 cursor（限流/游标失效）。此时后�
 超过 280 字的推文会带 `note_tweet`，此时 `legacy.full_text` 以 `…` 结尾。
 只读 `legacy.full_text` 不会报错——**它只是静默少一半内容**，这是最难发现的一类偏差。
 参考实现读的是 `item.note_tweet.note_text ?? legacy.full_text`，照它做。
+同一次审计一并对齐的还有 `media_count`：老结构在 `legacy.media_count`，
+新结构在 `core.tweet_counts.media_tweets`（`crates/xspider-fetch/src/user.rs`）。
 
 **C9. 正文里的 t.co 链接要清洗（参考实现的两步）。**
 1. 去掉 `entities.media[].url`——它是**那张图自己的**占位链接，媒体已经在 `medias` 里了；
@@ -216,7 +224,9 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
    我们返回的 `url` 不带 `?name=`，实际拿到的是 680px 图；要原图得自己加 `?name=orig`。
 
 实现见 `crates/xspider-download` 的 `HttpDownloader::probe_size`：
-**队列在下载前自动探测**（调用方没给 `expect_size` 时），于是媒体下载也能做完整性校验。
+**队列在下载前自动探测**（调用方没给 `expect_size` 时；开关是队列的
+`probe_size_when_unknown`，默认开），于是媒体下载也能做完整性校验——
+顺带解决引擎选择：内置 / Aria2Next 的分界本来就要看大小，现在它拿得到真值。
 
 ## F. 与上游的对应关系（移植时按这个顺序读）
 
@@ -232,8 +242,11 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 
 ## G. 实测响应形态（2026-10-01 采集；M0 + M1）
 
-> 这三条都是**真实抓到的响应**（脱敏后入库：`fixtures/user_by_screen_name/`），
+> 这几条都是**真实抓到的响应**（脱敏后入库：`fixtures/user_by_screen_name/`），
 > 不是推断。它们直接决定了错误分类怎么写——**不要凭直觉改**。
+> 总口诀（ADR-016）：**状态码定大类 + 结构化字段定细分**，绝不解析响应体文案——
+> X 用状态码表达鉴权、用"空 data"表达不存在，两者都不是"格式良好的错误响应"
+> （完整实测见 §G1 / §G2，迁移自 `AGENTS.md` 踩坑记录第 4 条）。
 
 **G1. 用户不存在 → HTTP 200 + `{"data":{}}`。**
 没有 `user` 键，也**没有 `errors[]`**。上游 `getUser` 的语义同样是"取不到 `legacy` 就是找不到"，
@@ -245,7 +258,8 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 （也是"不许用错误文案做判断"这条铁律的又一个现场证据。）
 
 **G3. 真实响应里带 `x-rate-limit-limit` / `-remaining` / `-reset`。**
-实测一次正常请求：`limit=150, remaining=148`。
+实测一次正常请求（`fixtures/user_by_screen_name/normal.json` 的 `response.headers`）：
+`limit=150, remaining=148`。
 → 可以据此做**主动**限流（在配额耗尽前降速），而不是等 429 才知道。
 这些头留在真实响应与 fixture 中，当前不由 `net.status` 对外暴露；它们是历史上的主动限流线索，
 不是当前待办。若以后决定暴露，先补契约与 ADR，再改实现。
@@ -290,17 +304,24 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 只认一种的后果不是"少几个字段"，而是 `parse_post` 返回 `None` →
 整页候选全废 → 报 `parse` 错误。上游 TS/Swift 也有这个兼容分支
 （`mapTwitterUser` 的注释写着"兼容 legacy 与新版 core 结构"），照它做。
+第一版只认 `legacy` 的实测症状：四个新结构端点全部报"`n` 条候选全部解析失败"，
+而 `user_medias` / `user_tweets` 正常。解法是字段用**候选路径**读
+（`legacy` 优先、`core` 兜底），且**推文作者与用户 DTO 两处共用同一组路径常量**
+（`crates/xspider-fetch/src/post.rs` 的 `USER_*_PATHS`，`user.rs` 引用同一组）——
+路径修一处即两处生效，别复制两份。
 
 **H2. 视频/动图码率变体的键名是 `content_type`（snake_case），不是 `contentType`。**
 实测：`"video_info": {"variants": [{"content_type": "video/mp4", ...}]}`（152 处）。
 上游 TS/Swift 读的是 `contentType`——**照抄就会一个变体都读不到**，
 于是视频选不出可下载 URL → `parse_media` 返回 `None` → `require_media` 把它筛掉 →
-**整页变空**。两种拼写都要认。
+**整页变空**。两种拼写都要认（`content_type` 优先）。
 
 **H3. 置顶推文是**单独一条指令** `TimelinePinEntry`，不在 `TimelineAddEntries` 里。**
 实测 `user_tweets` 首页：3 条普通条目**都没有媒体**，唯一带媒体的那条是
 `TimelinePinEntry` 里的置顶推文。只遍历 `TimelineAddEntries` 会把它整条丢掉。
 （上游 TS 与 Swift 移植都没处理这条指令，所以这里与它们行为不同：我们多一条真实存在的推文。）
+解法是 `all_entries()`（`crates/xspider-fetch/src/timeline.rs`）同时认两种指令，
+并保持指令顺序。
 
 **H4. 被客户端筛空 ≠ 到底。**
 `require_media=true` 时一页可能被筛成 0 条，但那是**我们筛的**，不是服务端没内容。
@@ -312,6 +333,7 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 `/i/jf/onboarding/web?...`，那个页面只有 17KB 且**没有任何 JS bundle 引用**，
 正则必然失败；带 cookie 时返回 307KB 的真实 SPA 外壳，里面有 `main.<hash>.js`。
 上游 Swift 注释说用 `cdnHeaders`（只带 UA）——**那条是错的**。
+解法：**页面**那句请求带凭据，**bundle** 那句不带（公开 CDN，无需会话）。
 
 **H6. 当前 bundle 里的 `SearchTimeline` queryId 与代码里的默认值已经不同。**
 实测（2026-10-01）bundle 里是 `uGB-gNd5HE4TkpO70OcFNw`，
@@ -323,3 +345,83 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 **H8. 两种主页模式是两个不同的 operation**（§B 侧记）：
 `for_you` → `HomeTimeline`，`following` → `HomeLatestTimeline`。
 它们共用同一份 `features`（与 `TweetDetail` 相同），但 queryId 与 operationName 都不同。
+
+---
+
+## I. 踩坑记录（2026-10-06 迁入自 AGENTS.md，保留原编号）
+
+> 以下 11 条原载于根目录 `AGENTS.md`「踩坑记录」，属于 X 协议 / 领域知识一类，按
+> 原编号与原加粗标题句收录于此。与本文既有小节重复的条目只留精要并互链
+> （AGENTS.md 版本里独有的实测数字与证据已并入对应小节）；没有既有小节覆盖的
+> 全文保留。其余主题（工具链 / 测试 / 下载运行时等）的条目见 `docs/05` 的踩坑总索引。
+
+**4. X 的两种真实响应形态逼着错误分类只能看状态码 + 结构，不能看 body。**
+未带凭据 → HTTP 403 且响应体为空；用户不存在 → HTTP 200 + `{"data":{}}`——
+两者都不是"格式良好的错误响应"，因此分类规则固定为
+「状态码定大类 + 结构化字段定细分」（ADR-016）。两种形态的完整实测、
+判据表与"X 改 `user` 键名会误判 `not_found`、canary 兜底"的副作用讨论见 §G1 / §G2 与 §G。
+
+**5. HTTP-date 与 X 的时间格式字段顺序不同，照抄会静默算错。**
+- 现象：`transport::tests::retry_after_http_date_*` 当场红。
+- 根因：HTTP-date 是「日 月 年 时:分:秒 GMT」，X 的 `created_at` 是
+  「周 月 日 时:分:秒 偏移 年」。我照抄了后者。
+- 解法：两套格式各自独立解析（`transport::unix_secs_from_http_date` /
+  `xdate::parse_x_created_at`），并各自钉一条用**已知纪元秒**断言的测试
+  （RFC 7231 的例子是 `784111777`）。**同类"两种看起来像的格式"都要这么处理。**
+
+**11. X 的响应里带 `x-rate-limit-limit / -remaining / -reset`。**
+实测于 `fixtures/user_by_screen_name/normal.json`（`limit 150, remaining 148`），
+意义是 M1 起就可以据此做**主动限流**，而不必等到 429 才知道配额快用完了。
+当前地位与注意事项见 §G3。
+
+**14. 同一个端点会返回两种用户结构，只认一种就会让整页解析成空。**
+`search_timeline` / `home_timeline` / `following` / `tweet_detail` 用新结构、
+`user_medias` / `user_tweets` 用老结构；第一版只认 `legacy`，四个端点全部报
+"`n` 条候选全部解析失败"。候选路径读法、共享常量 `USER_*_PATHS` 与上游兼容分支
+的出处已并入 §H1。
+
+**15. 视频码率变体的键名实测是 `content_type`，上游代码写的是 `contentType`。**
+症状是 `user_tweets` 严格模式解析出**空页**，而那条推文确实带视频——
+根因只是字段名拼写：变体读不到 → 视频选不出下载 URL → `parse_media` 返回 `None` →
+`require_media` 把整条筛掉 → 整页变空。详见 §H2。
+
+**16. 置顶推文在单独的 `TimelinePinEntry` 指令里，不在 `TimelineAddEntries` 里。**
+只遍历 `TimelineAddEntries` 会把被置顶的那条整条丢掉——`user_tweets` 首页上
+它往往正好是唯一带媒体的推文，症状是解析出 0 条。完整的指令序列与
+`all_entries()` 解法见 §H3。
+
+**19. 抓 `/search` 页面做 queryId 自愈必须带凭据。**
+不带 cookie 会被 307 到没有 JS bundle 引用的 onboarding 页，正则必然失败；
+上游 Swift 注释说只用 `cdnHeaders`（UA）——实测那条是错的。
+17KB / 307KB 的实测对比与"页面带凭据、bundle 不带"的解法见 §H5。
+
+**30. 媒体大小只能问 CDN，`码率 × 时长` 会差 5 倍。**
+想用 `video_info` 里的码率估算文件大小，好让"要不要外派给 aria2"有个依据：
+61.5 秒的视频按选中变体 10368000 bps 估算 **76 MiB**，问 CDN
+（`Range: bytes=0-0` 的 `Content-Range`）得到 **15187101 字节 = 14.48 MiB**，
+**差 5.25 倍**——码率是编码器上限，不是实际大小。解法是
+`HttpDownloader::probe_size`：先 `HEAD`，失败退回**1 字节的 Range**
+（`pbs.twimg.com` 的 HEAD 直接给 `Content-Length`；`video.twimg.com` 的 HEAD
+走不通但 Range 稳定可用；两条路都只下载 0～1 个字节）。
+完整实测表（含 `?name=medium` / `?name=orig` 的字节数）与实现落点见 §E9。
+
+**35. 长推文的正文在 `note_tweet.note_text`，`legacy.full_text` 是截断的。**
+只读 `legacy.full_text` 是**静默丢数据**——长推文只拿到前半段（以 `…` 结尾），
+不报错、不告警。正文取值见 §C8，t.co 清洗两步见 §C9，同一次审计对齐的
+头像归一化见 §C10、`media_count` 的读取路径见 §C8。
+教训：**"字段看起来在 legacy 里"不代表它在每个响应形态里都在。**
+
+**38. 写操作的成败要看**返回体**，不能只看 HTTP 状态码。**
+`fetch.mutate` 对一条不存在的推文返回了 `{"ok":true}`，测试才把它抓出来；
+界面上留下"已点赞"的假象，而服务端什么都没发生。按 `errors[].code` 判定的
+完整规则与实现（`ensure_mutation_succeeded`）已并入 §A7；
+教训：**"2xx 就是成功"这条直觉在写操作上不成立**，在只读端点上也要小心。
+
+**41. 对照参考实现要对着"它给外壳的模型"，不是"它发出的请求"。**
+- 现象：接入后**引用推文在界面上只剩空壳**。参考实现有 `mapQuotedPost`
+  （从 `quoted_status_result` 解析出被引用推文），而紧凑的契约只有 `quoted_id`。
+- 根因：抽取时我按"请求怎么发"逐条对齐，而"给外壳的数据长什么样"这一层
+  （`includeQuoted` 是个**入参开关**，说明它给过内嵌对象）被漏掉了。
+- 解法：契约 1.4.0 已给 `post` / `reply` 加 `quoted`（只嵌一层、不递归），见 `docs/08` §5.1。
+- 教训：对照清单里**要把"参考实现 DTO 的每个可选字段"列一行**，
+  特别是那些由入参开关控制的字段——开关本身就是"这里曾经有两种形态"的证据。
