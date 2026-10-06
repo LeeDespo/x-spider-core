@@ -258,9 +258,9 @@ git diff --cached --exit-code
 test -z "$(git status --porcelain)"
 ```
 
-任一失败即停止。注意第三条把**未跟踪且未被 ignore 的文件也算 dirty**（本仓库的
-`AGENTS.md`、`docs/00-KICKOFF.md`、`ACCEPTANCE.md`、`dist/` 等已被 `.gitignore` 忽略，
-不影响检查；临时杂物必须提交或忽略后再打 tag）。
+任一失败即停止。注意第三条把**未跟踪且未被 ignore 的文件也算 dirty**（本仓库把
+一次性启动简报、验收工作单 `ACCEPTANCE.md`、`dist/` 等本地工作文件列进了
+`.gitignore`，不影响检查；`AGENTS.md` 已入库，临时杂物必须提交或忽略后再打 tag）。
 
 ### 5.3 Release 只能从 tag 经 CI 构建
 
