@@ -1,190 +1,130 @@
-# 08 · 能力对照：组件 ↔ `x-spider-mac`
+# 08 · 能力地图：core 有什么、在哪实现、怎么测
 
-> 这一册回答一个问题：**参考实现（`x-spider-mac`）能做的事，组件是不是都覆盖了？**
+> 本册描述 **core 自己**的能力：契约 1.5.2 的 26 个 method（外加 1 个 sidecar 传输层
+> method `system.shutdown`）逐项给出「能力 → 契约 method → 实现位置 → 测试与 fixture 覆盖」。
+> method 名称与数量以 [`CONTRACT.md`](CONTRACT.md) §3 与 [`09-METHOD-INDEX.md`](09-METHOD-INDEX.md)
+> 为准，三者与 `contract/xspider.schema.json` 的 `method` 枚举的一致性由契约守卫测试
+> （`crates/xspider-ffi/tests/contract_guard.rs`）钉住。
 >
-> 对照基准是 `x-spider-mac` 的 tag **`pre-component-integration`**——即"接入组件之前"的那个状态。
-> 它列的是**能力**（能取什么、能下什么、什么情况下停），不是代码结构：
-> 组件有自己的分层，不要求与参考实现长得一样——对齐的是**可观测行为**
-> （字段值、请求头、传给 aria2 的选项），不是实现结构。
->
-> 三张表之后是分工说明与缺口清单。**缺口分两类**：组件侧的（要改契约）与外壳侧的（要接线）。
+> 怎么调、入参出参、错误码见 [`07-API-REFERENCE.md`](07-API-REFERENCE.md)；
+> 与参考实现 `x-spider-mac` 的逐项对照（迁移期审计）已归档到
+> [`history/mac-integration-2026-10/CAPABILITY-PARITY.md`](history/mac-integration-2026-10/CAPABILITY-PARITY.md)。
 
 ---
 
-## 1. 取数
+## 1. 能力总表（26 个 method + 1 个传输层 method）
 
-| 参考实现里的函数（`pre-component-integration`） | 组件 method | 说明 |
+### 1.1 系统（`system.*`，2）
+
+| 能力 | 契约 method | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
+|---|---|---|---|
+| 握手：契约版本 / 构建版本 / 当前形态（`sidecar` / `cdylib`） | `system.version` | 派发 `crates/xspider-ffi/src/engine.rs`；sidecar ready 行 `bins/xspiderd/src/server.rs` | `engine.rs::version_handshake_reports_both_versions`；双形态契约 E2E `bins/xspiderd/tests/contract_dual.rs`（sidecar HTTP 与 cdylib 走同一条派发路径） |
+| 能力自检：列出本版本全部契约 method | `system.methods` | `crates/xspider-ffi/src/engine.rs`（`METHODS` 派发表） | `engine.rs::methods_list_is_not_empty_and_contains_the_ones_we_implement`；`contract_dual.rs::check_methods_are_reported_consistently`；守卫测试钉 method 枚举一致 |
+| （传输层）sidecar 优雅退出：落盘状态、结束后端子进程 | `system.shutdown`（不属于 26 个契约 method，不进 `system.methods`） | `bins/xspiderd`（进程生命周期） | `contract_dual.rs`（退出后无子进程残留）；`script/smoke.sh` 离线冒烟（握手 / 调用 / 关停 / 无残留） |
+
+### 1.2 凭据与网络（`auth.*` 2 + `net.*` 4）
+
+| 能力 | 契约 method | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
+|---|---|---|---|
+| 注入凭据（只进不出，不落盘 / 不打日志 / 不回显） | `auth.set_cookie` | 派发 `engine.rs`；凭据持有与失效 `crates/xspider-core/src/creds.rs` | `engine.rs::set_cookie_never_echoes_the_credential`、`set_cookie_rejects_a_cookie_without_ct0`；`contract_dual.rs`（注入 / 缺 csrf 两分支） |
+| 登录校验 / 当前账号（抓首页取 `screen_name`） | `auth.whoami` | `crates/xspider-fetch/src/social.rs` | `social.rs` 单元测试（从真实页面样本抽出三个字段）；**无 HTTP fixture / 回放 / canary 覆盖**（见 §3） |
+| 限流参数：接口令牌桶 / CDN 并发 / 冷却秒数 | `net.set_limits` | `crates/xspider-core/src/ratelimit.rs`（闸门与熔断），`engine.rs` 接线 | `engine.rs::set_limits_requires_every_field`；`contract_dual.rs`（缺字段 / 正常各一）；令牌桶与 429 冷却行为见 `ratelimit.rs` 单元测试 |
+| 运行中换 / 关代理（取数与下载一起换，派发那一刻生效） | `net.set_proxy` | 入参解析 `crates/xspider-core/src/http.rs`；客户端热替换 `crates/xspider-core/src/stack.rs`；下载侧 `crates/xspider-download/src/queue.rs`、`http_backend.rs` | `engine.rs::set_proxy_accepts_url_and_null`；`contract_dual.rs`（null / 漏字段）；`queue.rs::proxy_can_be_swapped_at_runtime` |
+| 限流状态查询（是否处于冷却） | `net.status` | `crates/xspider-core/src/ratelimit.rs`，`engine.rs` 派发 | `engine.rs::status_starts_ok`；`contract_dual.rs`（初始 + 跑过之后各一次） |
+| 问 CDN 媒体大小（HEAD，失败退 1 字节 Range；一次至多 1 字节流量） | `net.probe_size` | `crates/xspider-core/src/stack.rs`（probe）；下载队列同语义的下载前探测（`probe_size_when_unknown`）`crates/xspider-download/src/http_backend.rs`、`queue.rs` | `http_e2e.rs`（HEAD 给 Content-Length / Range 兜底 / 服务端不给 → `null` / 探测值回填 `expect_size`）；`engine.rs::probe_size_offline_says_unknown_without_touching_the_network`（回放模式不联网） |
+
+### 1.3 取数（`fetch.*`，9）
+
+| 能力 | 契约 method | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
+|---|---|---|---|
+| 用户资料（`legacy` / `core` 两种响应形态都认） | `fetch.get_user` | `crates/xspider-fetch/src/user.rs` | fixture `user_by_screen_name/{normal,not_found,unauthorized}`（正常 / 200 空 data / 匿名 403 空体）；`replay_offline.rs` + `engine.rs`（`@` 前缀归一化、not_found、未注入凭据 → `unauthorized`）+ live canary |
+| 媒体时间线（单页 + 游标） | `fetch.user_medias` | `crates/xspider-fetch/src/timeline.rs` | fixture `user_medias/{page1,page2}`；回放：游标推进、全页 id 唯一、任何时间线 fixture 无广告条目；canary |
+| 推文时间线（`require_media` / `include_retweets` 两开关） | `fetch.user_tweets` | `crates/xspider-fetch/src/timeline.rs` | fixture `user_tweets/page1`；回放：严格模式只留带媒体推文；canary |
+| 推文详情 + **扁平**回复列表（`parent_id` / `is_partial_parent`） | `fetch.tweet_detail` | `crates/xspider-fetch/src/tweet_detail.rs` | fixture `tweet_detail/with_replies`；回放：focal 与孤儿回复标记；canary |
+| 按日期搜某人推文（`until` 含当天，内部 +1 天） | `fetch.search_timeline` | `crates/xspider-fetch/src/search.rs`；queryId 自愈 `search_query_id.rs`（锚定 `operationName`，404 才自愈） | fixture `search_timeline/media_only` + 真实 bundle 原料 `query_id_source.json`；`search_query_id.rs` 单元测试；canary |
+| 主页时间线（`for_you` / `following` 两模式） | `fetch.home_timeline` | `crates/xspider-fetch/src/timeline.rs` | fixture `home_timeline/{for_you,following}`（两种 operation 各一页）；回放：两种模式；canary（两模式各一次） |
+| 关注列表 | `fetch.following` | `crates/xspider-fetch/src/timeline.rs` | fixture `following/page1`；回放：用户解析；canary |
+| 关注态（v1.1 `friendships/show`；缓存"我是谁"，换 cookie 自动失效） | `fetch.is_following` | `crates/xspider-fetch/src/social.rs` | **本仓库未发现专属离线用例**（无 fixture / 回放 / canary，2026-10-06 核对）；结构对不上时报 `parse`，不默默返回 `false` |
+| **写操作**：点赞 / 转推 / 书签 / 关注（8 种 `action`） | `fetch.mutate` | `crates/xspider-fetch/src/social.rs`（`ensure_mutation_succeeded` 按**响应体** `errors[].code` 判定，不看 HTTP 状态码） | `social.rs` 单元测试：8 种 action 解析、variables 形状对齐参考实现、成功与否按 body 判定、从真实页面样本抽字段；**无 HTTP fixture / canary**（写操作会对真实账号生效） |
+
+### 1.4 下载（`dl.*`，8）
+
+| 能力 | 契约 method | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
+|---|---|---|---|
+| 入队下载（`job_id` 幂等；记录落盘后才派发） | `dl.enqueue` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::queue_downloads_and_writes_a_record`、`enqueue_does_not_accept_or_dispatch_when_record_write_fails`；`queue.rs` 单元测试（同 `job_id` 只收一次、空 URL 拒收、记录写失败不入队）；`contract_dual.rs`（缺字段 / `file_name` 带路径） |
+| 暂停（**保留**断点） | `dl.pause` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::pause_keeps_the_partial_and_resume_finishes_the_download`；`rapid_pause_then_resume_serializes_the_old_backend_run`（旧轮不能写新轮的 `.part`）；`cancel_after_pause_waits_for_cleanup_before_explicit_resume` |
+| 恢复（对 `paused` / `error` 显式恢复；`waiting`/`active` 是成功但无操作） | `dl.resume` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::resume_on_an_active_job_is_a_successful_noop`、`paused_job_survives_restart_and_resumes_with_saved_parameters`；`queue.rs::stale_dispatch_cannot_invalidate_a_newer_resume`（过期派发作废不了新恢复） |
+| 取消（**丢弃**断点；在飞任务真正停下才落终态） | `dl.cancel` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::cancel_discards_the_partial_and_marks_the_job_failed`、`cancel_cleanup_failure_keeps_intent_pending_until_a_retry_succeeds`、`pending_cancel_recovery_cleans_part_but_preserves_ambiguous_final_file`（不能证明归属的完整文件不误删） |
+| 单任务快照 | `dl.status` | `crates/xspider-download/src/queue.rs` | `queue.rs::unknown_job_id_is_a_structured_not_found`；`contract_dual.rs`（未知任务 → `not_found`） |
+| 全部任务快照（**重启对账的权威来源**，按 `job_id` 排序） | `dl.list` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::restart_is_reconciled_through_the_records_file`、`interrupted_active_record_recovers_from_the_disk_part`、`legacy_version_one_record_recovers_with_default_requirements`；`queue.rs`（记录跨重启存活并报 version、损坏记录不弄垮队列、未来 version 忽略不猜） |
+| 增量事件（带游标轮询，`since` 首次传 0；不是推送流） | `dl.events` | `crates/xspider-download/src/queue.rs` | `queue.rs::events_are_retrievable_by_cursor`；`queue_e2e.rs::integrity_failure_surfaces_in_state_events_and_cleanup`；事件只属于本次调用的边界由 `engine.rs::crawl_run_events_cover_only_this_call_and_seq_never_goes_backwards` 钉住 |
+| 清掉已结束任务的内存快照 | `dl.prune` | `crates/xspider-download/src/queue.rs` | `queue_e2e.rs::finished_jobs_can_be_pruned`（语义注意见 §3） |
+
+### 1.5 爬取（`crawl.run`，1）
+
+| 能力 | 契约 method | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
+|---|---|---|---|
+| 跑一轮爬取：候选清单（有损）+ 同批完整推文（`posts[]`）+ `done_reason` 终止判据族（`exhausted` / `time_progressed` / `empty_pages` / `cursor_stuck` / `wanted_collected` / `page_limit_reached` / `cancelled` / `error`） | `crawl.run` | `crates/xspider-download/src/crawl.rs` | `crawl.rs` 单元测试：四条终止判据、陈旧账号报 `time_progressed` 而非空页、`wanted` 收齐即停、去重先于筛、同一媒体在两条推文里是一个候选、无 `created_at` 保留、`until` 含整天、媒体类型筛、逐页游标、取消、按页节流、`max_pages` 上限、页失败保留原错误码、取页错误码穿透；`engine.rs`（candidates 旁给 `posts[]`、事件只覆盖本次调用且 `seq` 不回退、耗尽时省略 `next_cursor`）；`contract_dual.rs`（`source` 不合法） |
+
+---
+
+## 2. 共享内核与下载引擎（随上面两组 method 生效，不单独成 method）
+
+| 能力 | 实现位置（crate / 模块） | 测试与 fixture 覆盖 |
 |---|---|---|
-| `getUser(screenName:fast:)` | `fetch.get_user` | 结构对齐（`legacy` / `core` 两种形态都认） |
-| `getUserMedias(userId:cursor:count:fast:)` | `fetch.user_medias` | 广告过滤、去重、置顶推文（`TimelinePinEntry`） |
-| `getUserTweets(userId:cursor:count:requireMedia:includeRetweets:)` | `fetch.user_tweets` | 两个开关语义一致（转推展开、`retweeted_by`） |
-| `getTweet(id:)` | `fetch.tweet_detail` | 组件同时给出 `focal` 与 `replies[]` |
-| `getTweetDetailTree(id:)` | `fetch.tweet_detail` | 组件给**扁平**回复列表（含 `parent_id` / `is_partial_parent`），建树留在外壳 |
-| `searchTimeline(screenName:range:product:count:cursor:)` | `fetch.search_timeline` | 日期语义一致（`until` 含当天、组件内部 +1 天、不做时区换算） |
-| `getHomeTimeline(mode:cursor:)` | `fetch.home_timeline` | 推荐 / 关注两种模式 |
-| `getFollowing(userId:cursor:count:)` | `fetch.following` | 默认每页 100 |
-| `getAccountInfo(...)` / `probeConnection()`（抓首页 HTML + 正则） | `auth.whoami` | **登录校验语义完全一致**：页面里没有 `screen_name` 就是 cookie 失效 |
-| `isFollowing(screenName:useCache:)`（v1.1 + 300 秒内存缓存） | `fetch.is_following` | 缓存的是"我是谁"（不是被查的人），换 cookie 自动失效 |
-| `currentUserId()` | 无单独 method | 外壳从 `auth.whoami` 的 `account.id` 取；缺失时用 `fetch.get_user` 补 |
-
-**解析层面的差异（都是有意的，且都是改进）**：
-
-| 参考实现 | 组件 |
-|---|---|
-| 长推文正文取 `legacy.full_text`（截断，以 `…` 结尾） | 优先 `note_tweet.note_text`，并按参考实现清洗媒体占位链接与短链 |
-| 头像替换 `_normal` → `_bigger` 散在各处 | 组件统一归一化（`https:` + `_bigger`），外壳那两行可以删 |
-| 置顶推文（`TimelinePinEntry`）没处理 | 组件会返回置顶推文（它是独立指令，可能整页只有它） |
-| 搜索 queryId 用内置常量 + 自愈 | 同样自愈，但**锚定 `operationName`**（避免抓到别的操作的 id） |
-| 引用推文内嵌正文（`quoted_status_result`） | 组件内嵌 **`quoted`** 推文（契约 1.4.0），引用卡片直接渲染——见 §5.1 |
+| 限流闸门与 429 熔断（接口 / CDN 两套配额分别治理） | `crates/xspider-core/src/ratelimit.rs` | `ratelimit.rs` 单元测试（令牌桶、突发、冷却、`Retry-After` 解析） |
+| 请求签名（`x-client-transaction-id`）与失效重取 | `crates/xspider-core/src/xclid.rs` | `xclid.rs` 单元测试 + 真实页面原料 `fixtures/xclid/page_artifacts.json`；回放模式跳过签名（真实签名的正确性交给 live recorder / canary） |
+| 传输层：有界重试、错误分类（状态码定大类 + 结构化字段定细分）、两种时间格式 | `crates/xspider-core/src/transport.rs`、`error.rs`、`xdate.rs` | 各自单元测试（时间格式用已知纪元秒断言） |
+| fixture 回放（离线默认，不碰网络） | `crates/xspider-core/src/fixture.rs` | `replay_offline.rs`（11 条用例，含"入库 fixture 全部脱敏""分页 fixture 声明游标期望"两条资产自检）；`contract_dual.rs::check_fixtures_are_actually_exercised` |
+| 内置 HTTP 下载后端（流式落盘、Range 续传、断流重试、原子 rename、取消清理、UA/Referer/Accept-Encoding: identity） | `crates/xspider-download/src/http_backend.rs` | `http_e2e.rs` 15 条：字节精确、大小不符即完整性失败且无残留、断流从已写字节续传、服务端无视 Range 则重启、永久截断失败并清理、404/403 不重试、取消无残留、无 `expect_size` 明示 Unverified、既有断点续接、说谎的 Content-Length 判失败 |
+| Aria2Next 外派后端（JSON-RPC 记账、逐任务显式传代理与 UA/Referer、控制文件断点） | `crates/xspider-download/src/aria2.rs` | `aria2_e2e.rs` 8 条：下载并校验完整性、**404 不得报成功**（引擎说成功不算）、大小不符清理、取消无残留、不混用别引擎断点、拒绝上游 aria2、关停无子进程残留、drop 即杀子进程 |
+| 引擎选择（按 `requirements.segments` + 探测到的真实大小）与下载前探测 | `crates/xspider-download/src/queue.rs`、`http_backend.rs` | `queue_e2e.rs::multi_segment_requirement_degrades_gracefully_without_aria2`（无 aria2 时优雅降级）、`unknown_size_is_probed_so_integrity_is_still_verified` |
+| 并发上限（队列配置）与页间节流 | `crates/xspider-download/src/queue.rs`、`crawl.rs` | `queue_e2e.rs::concurrency_is_capped_by_the_configured_limit`（按"正在写字节"计）、`crawl.rs::page_throttle_is_respected` |
+| sidecar HTTP / stdio 两种传输；state-dir 单实例锁（Unix 内核 `flock`，锁文件保留 inode） | `bins/xspiderd/src/server.rs`（HTTP + ready 行）、`rpc.rs`（请求解析 / stdio JSON Lines / token）、`lock.rs` | `rpc.rs` 单元测试（最小请求解析、畸形 body 结构化报错不 panic、缺 method、token 头或 body 均可）；`lock.rs` 单元测试（在持者互斥、陈旧 pid 不挡启动、释放保留 inode）+ `bins/xspiderd/tests/state_dir_lock.rs`（env state-dir 独占、进程死亡后释放）；`contract_dual.rs` 钉 sidecar HTTP 全流程；stdio 形态的设备实测记录见 [`10-ANDROID-INTEGRATION.md`](10-ANDROID-INTEGRATION.md) §8 |
+| 三层契约一致性守卫（METHOD 派发表 = schema 枚举 = CONTRACT 文档 = `docs/09`） | `crates/xspider-ffi/tests/contract_guard.rs` | `schema_method_enum_equals_implemented_methods`、`schema_details_cover_every_method`、`contract_markdown_documents_every_method`、`error_codes_in_schema_match_the_code_enum`、`every_error_field_is_declared_in_the_schema` |
+| 第一个真实消费方（只经契约，不链接任何本仓库 crate） | `bins/xspider-cli` | `only_the_contract.rs`（依赖守卫 + 主传输形态演练）；`dry_run_offline.rs`（离线规划 / JSON 报告 / 用法错误 / sidecar 缺失是 transport 失败而非静默成功 / CLI 调的 method 都被组件声明）；`script/smoke.sh` 离线全链路 |
 
 ---
 
-## 2. 写操作与账户
+## 3. 当前缺口
 
-| 参考实现 | 组件 method | 说明 |
-|---|---|---|
-| `favoriteTweet(id:)` | `fetch.mutate { action: "favorite", tweet_id }` | |
-| `unfavoriteTweet(id:)` | `… "unfavorite"` | |
-| `createRetweet(id:)` | `… "retweet"` | |
-| `deleteRetweet(id:)` | `… "unretweet"` | |
-| `createBookmark(id:)` | `… "bookmark"` | |
-| `deleteBookmark(id:)` | `… "unbookmark"` | |
-| `followUser(screenName:)` | `… "follow", screen_name` | 成功后失效关注态缓存 |
-| `unfollowUser(screenName:)` | `… "unfollow", screen_name` | 同上 |
-
-**一处行为对齐（很重要）**：X 对失败的突变返回的是 **HTTP 200 + `errors[]`**，
-只看状态码会给出"已点赞"的假象。参考实现在 `mutate` 之后检查了响应体；
-组件同样检查（`ensure_mutation_succeeded`），并把上游错误码翻译成契约的 `error.code`。
-
----
-
-## 3. 下载
-
-| 参考实现 | 组件 | 说明 |
-|---|---|---|
-| `Aria2RPCClient`（起 aria2Next、JSON-RPC、`tellStatus` 轮询） | 下载组件的 **Aria2Next 后端** | 启动时校验 `product=aria2-next`；引擎选择留在组件内部 |
-| `Aria2Engine`（RPC 优先、子进程兜底、resume、多连接、UA/Referer、代理） | 同上 | UA / Referer / 代理**逐任务显式传**（子进程不认识 `HTTPS_PROXY`） |
-| `DownloadStore` 的 URLSession 下载 | **内置 HTTP 后端** | 流式落盘、Range 续传、断流重试、原子 rename、取消清理 |
-| 引擎分流 `engineFor`（按"码率×时长"估算挑引擎） | 组件内部按 `requirements.segments` + **探测到的真实大小** | 那个估算实测差 **5.25 倍**，已被"问 CDN"取代 |
-| `pump()` 并发调度 + CDN 限流降级（并发降到 1） | 下载队列的并发上限 + `cdn_concurrency` | 接口与 CDN 是两套配额 |
-| 重试 5 次、指数退避 1/2/4/8/16 秒 | 组件内部对单次请求重试；**外壳侧的重试仍在** | 见 §5.2 |
-| `finalizeDownload`：原子移动到目标 + 校验 + 写记录 | 组件：**落盘字节数**判据 + 完整性校验 + 记录（带 `version`） | 完成判据不是"后端说成功"（Aria2Next 对 404 会报 complete 并留 0 字节文件） |
-| 暂停（`resumeDataMap` / aria2 pause）、取消（删除文件与控制文件） | `dl.pause` / `dl.resume` / `dl.cancel` | 暂停**保留断点**，取消**丢弃断点**；断点名带引擎标识，两个引擎的断点物理上不能混用 |
-| 记录文件 `.downloaded.json`（每个用户目录一份） | 组件写自己的 version 1 `downloads.json`（`XSPIDER_STATE_DIR` / `--state-dir`） | 两份记录分工不同：组件记录用于状态恢复、幂等与对账，外壳记录用于产品历史与同文件跳过 |
-| 临时文件 `<gid>-<name>` / `.xspider-tmp-*` | 组件：`.part.<engine>` 命名 | 换引擎不会误用另一个引擎的断点 |
-| `FileIntegrity`（大小 + 魔数 + HTML 误页） | 组件只管**大小**；魔数判定**有意留在外壳** | 分工见 §4 |
-| 下载请求头（UA Chrome 142、`Referer: https://x.com/`） | 与参考实现一致 | 另加 `Accept-Encoding: identity`（否则压缩会让字节数对不上，完整性**假红**） |
-
----
-
-## 4. 爬取与调度
-
-| 参考实现 | 组件 |
-|---|---|
-| `SyncStore`：每用户最多 5 页、按 `.synced.json` 的 `anchorDay` 增量 | `crawl.run` 的 `limits.max_pages` + `strategy.since/until`（**外壳尚未使用**，见 §5.4） |
-| `CreationTaskStore`：日期区间增量、连续空页上限 5、游标未推进即停、页间节流 500ms（限速时 1500ms）、限速时挂起而非失败 | `crawl.run` 的 `strategy` + `done_reason`（`time_progressed` / `empty_pages` / `cursor_stuck` / `page_limit_reached`）。**这些判据组件已实现并测试** |
-| `HomepageStore.fetchPage`：搜索/时间线双路 + "填满视口"循环 | 外壳用单页原语自己驱动。**这是有意的**：视口填充是渲染问题，不是爬取问题 |
-
----
-
-## 5. 缺口清单
-
-### 5.1 引用推文的正文 —— **已修（契约 1.4.0）**
-
-- **参考实现**：`mapTwitterPost(_:includeQuoted:)` + `mapQuotedPost` 会从 `quoted_status_result`
-  解析出被引用推文，界面据此渲染引用块（`HomeTimelineView` / `MediaDetailView` 都在用
-  `post.quotedPost`）。
-- **现状**：契约的 `post` / `reply` 只有 `quoted_id`（字符串），**没有内嵌正文、作者、媒体**；
-  接入后 `XSpiderMapping` 恒为 `quotedPost: nil`。
-- **后果**：引用推文在界面上**只剩一个空壳**（正文里那条 t.co 短链也没了）。
-- **修法（已做）**：契约 1.4.0 给 `post` / `reply` 增加 `quoted`（`post | null`，只嵌一层、不递归），
-  组件从 `quoted_status_result` 解析（两种包裹形状 + `legacy` 兜底），外壳映射到 `quotedPost`。
-  **只增字段，不改不删**，符合兼容规则。离线有真实 fixture 用例，合成样本覆盖包裹形状与"只嵌一层"。
-
-### 5.2 暂停/恢复与失败重试没有接线 —— **已修（外壳侧）**
-
-- **现状**：外壳的"继续"与"自动重试"走的是 `start()` → `pump()` → `launch()` →
-  **再次 `dl.enqueue`（同一个 `job_id`）**；而组件对已存在的 `job_id` 返回
-  **`already_known` 且不会重启任务**（幂等是刻意的）。
-- **后果**：功能上"暂停后继续"与"失败后重试"**都没有真正发生**——
-  界面上任务显示"下载中"，组件里的任务仍是 `paused` / `error`，进度永远不动。
-- **修法（已做）**：外壳把任务交回组件的那个唯一入口（`launch`）现在看 `dl.enqueue` 的
-  `accepted_by`：命中 `already_known` 时补一次 **`dl.resume`**（对 `paused` 与 `error` 都有效，
-  只拒绝 `complete`）。组件侧无需改动——**看返回值分支**，而不是新增一个"我在重试"的标记。
-- **教训**：`already_known` 是幂等命中，**不是**"重新开始"。这条已写进
-  [`07-API-REFERENCE.md`](07-API-REFERENCE.md) §4.4 与 §7.3。
-
-### 5.3 重启后不与组件对账 —— **已修（外壳侧）**
-
-外壳启动时把 `download-history.json` 里 `active` / `waiting` 的任务一律改成 `paused`，
-而事件轮询只在"有新任务入队"时才启动。于是**只有恢复任务、没有新任务的那次启动，
-不会去问组件的 `dl.list()`**，两边状态可能不一致（组件那边可能已经下完了）。
-修法（已做）：启动时无条件跑一次对账，并且**真的把组件那边自动重新排队的任务暂停掉**——
-组件现在会持久化 version 1 记录并按状态恢复：Waiting/Active 恢复为 Waiting，Paused 保持暂停，
-Error（包括取消）保持 Error 且不自动重试。mac 外壳仍在启动时以 `dl.list()` 对账，并按
-"重启不自动续传"的产品策略暂停恢复出的 Waiting 任务。取消不会因重启复活。
-
-### 5.4 `crawl.run` 未接进外壳 —— **已接（创建任务这一处）**
-
-组件早就实现并测试了爬取循环（含终止判据族），而外壳仍自己写翻页循环。
-**现在"创建任务"（`CreationTaskStore`）改走 `crawl.run`**：翻页、游标推进、
-四条终止判据（到底 / 时间轴推进 / 连续空页 / 游标未推进）只有一份实现。
-
-接线时按之前列的代价逐条处理：
-
-| 代价 | 处理方式 |
-|---|---|
-| `crawl.run` 是"跑到停为止再返回"，进度看不见、取消不响应 | **切成小块**（`max_pages: 3`），块之间外壳更新进度、检查挂起与取消，用 `next_cursor` 续跑 |
-| 限流时要能**挂起而不是失败**（外壳的 `shouldSuspendNewWork`） | 保留：每块**之前**先 `waitWhileThrottled()`，挂起期间 cursor 与进度都不动 |
-| 组件按 **UTC 天**比较日期，用户选的是**本地日历** | 组件的 `since/until` **故意各放宽一天**当粗筛；精确边界（本地日历）由外壳按候选自带的 `created_at` 再做一次 |
-| `media_types` 是**按推文**筛（"这条推文里有符合的"），旧实现是**按媒体**筛 | 两处都做：类型透传给组件当粗筛，外壳再逐条判 |
-| 候选是**有损**的，算不出文件名、写不了历史记录 | **契约 1.5.0 给 `crawl.run` 加了 `posts[]`**（同一批推文的完整 DTO）。这是接真实外壳才暴露的缺口——第一个消费方是 CLI，它不要名字 |
-| 契约的 `wanted_keys` 与外壳的键（`postId/mediaId`）不是一套 | **不用它**：两套键对不上时它静默不生效（不报错、只是多翻页），外壳自己判断"收齐即停"更直接 |
-
-`SyncStore` **不接**（它按 `.synced.json` 的锚点日去重，是另一套产品语义），
-`HomepageStore` 的"填满视口就停"也不接（那是渲染问题）。
-
-### 5.5 `dl.prune` 未被调用 —— **无功能影响**
-
-已结束的任务快照会一直留在组件内存里（数量级：一次会话几百条）。
-调与不调不影响下载，只是内存。
-
-顺带记一条容易被想反的语义：**`dl.prune` 只清内存快照，不清下载记录**。
-配了 `--state-dir` 时记录还在，所以清完之后同一个 `job_id` 再入队**仍然**是
-`already_known`（`enqueue` 在内存里查不到之后还会去查记录）。要重下必须换新的 `job_id`。
-
-### 5.6 组件侧尚未实现 / 已知边界
+**组件侧尚未实现 / 未设计**（调用会得到 `invalid_request` 或无此入口）：
 
 | 项 | 状态 |
 |---|---|
-| `dl.plan` / `dl.report` | 早期设计只留下 `host` 名称；method、字段形状及宿主执行模型均未设计，也不在当前 26 个 method 中 |
-| `net.set_limits.cdn_concurrency` 运行中不可变 | 信号量不能缩容；只在队列创建时生效 |
+| `dl.plan` / `dl.report` | 早期设计只留下 `host` 名称；method、字段形状及宿主执行模型均未设计，不在当前 26 个 method 中（`CONTRACT.md` §3.3 只登记预留名称） |
+| `net.set_limits.cdn_concurrency` 运行中不可变 | 信号量不能缩容，只在队列创建时生效；"运行中调并发"需要另外的接口（这是外壳侧仍待决定的产品行为，见 [`06`](06-CONSUMER-INTEGRATION.md) §5 第 5 条） |
 | 推送式事件流 | 不做（三种形态统一用游标轮询，ADR-029） |
 
-### 5.7 外壳里仍然直连 X CDN 的地方 —— **有意保留，不是缺口**
+**测试覆盖缺口**（2026-10-06 核对）：
 
-| 位置 | 用途 | 为什么不进组件 |
-|---|---|---|
-| `AccountStatusStore.probeCDN()` | 探一张 `pbs.twimg.com` 的图，判断 CDN 是否可用 | 是"健康探针"这种产品行为；组件侧对应的权威信息是 `net.status` 与错误的 `code` |
-| `ImageCache` / `SidebarView` / `DownloadsView` | 头像与缩略图 | **图片展示**不属于契约范围（契约不覆盖 UI 取图），走 URLSession 直连更简单 |
-| `CookieLoginSheet` | WKWebView 打开 `x.com/login` 取 cookie | 登录是外壳的事，cookie 由外壳注入 |
+- `auth.whoami` / `fetch.is_following` / `fetch.mutate` 没有专属的 HTTP fixture、回放用例或
+  live canary（canary 只覆盖 7 个取数端点）。三者的解析与判定逻辑有单元测试钉住
+  （`social.rs`），但**它们对真实 X 响应的端到端行为没有被离线资产自动化**。
 
-**已全部迁走、外壳里再无自建 HTTP 层的部分**：签名（`XClientTransaction`）、
-limit/重试（`NetworkClient`、`RequestGate`）、queryId 自愈（`SearchQueryIdProvider`）、
-aria2 引擎（`Aria2Engine`、`Aria2RPCClient`）——这些文件已从外壳删除。
+**容易想反的语义**：
+
+- `dl.prune` **只清内存快照，不清下载记录**：配了 `--state-dir` 时记录仍在，清完之后
+  同一个 `job_id` 再入队**仍然**是 `already_known`（`enqueue` 在内存里查不到之后还会去查记录）。
+  要重下必须换新的 `job_id`。
+- 完整性只管"**字节对不对**"；"这个文件真的是图片 / mp4 吗"（魔数、HTML 误页）
+  有意留在外壳——分工与理由见 [`06`](06-CONSUMER-INTEGRATION.md) §5 第 4 条。
+
+**运行时未验收边界**：Android 设备 / 16 KB 页 / Aria2Next Android / Doze 等仍开放的验收边界
+以 [`10-ANDROID-INTEGRATION.md`](10-ANDROID-INTEGRATION.md) §8 的记录为准，不以编译或模拟器通过替代。
+
+**已闭合的历史缺口**（暂停/恢复接线、重启对账、`quoted` 内嵌、`crawl.run` 接入外壳等
+当时外壳侧的处置）见 [`history/mac-integration-2026-10/`](history/mac-integration-2026-10/MIGRATION.md)。
 
 ---
 
-## 6. 结论
+## 4. 有意不进组件的事（分工，不是缺口）
 
-**取数与写操作：一一对应，没有当前组件侧缺口**；引用推文正文已在契约 1.4.0 补齐（§5.1）。
-
-**下载：能力一一对应**，且有三处是刻意的改进（真实大小探测取代码率估算、
-落盘字节数判据取代"引擎说成功"、断点按引擎隔离）。
-外壳侧那两处没接线的问题（§5.2 暂停/恢复与重试、§5.3 重启对账）也已修。
-
-**爬取：组件覆盖得比参考实现多**（终止判据族、`done_reason`），
-且"创建任务"已经改走它（§5.4）——外壳侧那一套终止判据整段删掉了。
-
-**有意留在外壳的**（分工，不是缺口）：文件名模板、目录选择、同文件跳过记录、
-UI/通知、图片取用、魔数/HTML 误页判定、视口填充式滚动。
+| 事项 | 理由 |
+|---|---|
+| 文件名模板、目录选择 | 产品语义，`file_name` / `dest_dir` 由外壳算好传入（CLI 在 `bins/xspider-cli/src/plan.rs` 有可抄的默认模板示范） |
+| UI 取图（头像 / 缩略图） | 图片展示不属于契约范围；走外壳自己的 HTTP 栈更简单 |
+| 登录 UI 与 cookie 获取 | 登录是外壳的事，cookie 由外壳经 `auth.set_cookie` 注入（只进不出） |
+| "健康探针"类的 CDN 探测 | 产品行为；组件侧对应的权威信息是 `net.status` 与错误的 `code` |
+| 魔数 / HTML 误页判定 | 见 §3"容易想反的语义" |
+| 视口填充式滚动、通知、进度节流 | 渲染与体验问题，事件轮询 + `dl.list` 已给外壳足够信息 |
