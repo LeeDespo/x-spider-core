@@ -29,6 +29,18 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # 文档护栏最先跑：不装任何工具链，几秒出结果。文档约束（AGENTS.md 必须入库、
+  # 活跃文档不得引用不随仓库分发的 docs/00-KICKOFF.md、相对链接可解析、契约版本
+  # 同步）不依赖构建产物，没必要等 macOS 的 build 跑完才暴露。
+  docs-guard:
+    name: 文档护栏
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 逐项检查（跟踪与忽略 / 00-KICKOFF 引用 / 相对链接 / 契约版本同步）
+        run: bash script/docs_guard.sh
+
   build:
     name: 质量门（macOS）
     runs-on: macos-latest
