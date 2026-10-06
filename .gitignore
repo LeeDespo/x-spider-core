@@ -24,10 +24,7 @@ cookie.txt
 /.xspider-state/
 /state/
 
-# --- 专为 agent 而写的文档：不上传 GitHub ---
-# 这些文件是给「下一轮 agent」的操作手册与本轮简报，属于本地开发上下文，
-# 不是对外交付物。仓库对外发布 docs/01–10、CONTRACT/DECISIONS/ROADMAP、README 与 CHANGELOG。
-/AGENTS.md
+# --- 本地工作文件（一次性启动简报/验收工作单）：不上传 ---
 /docs/00-KICKOFF.md
 /ACCEPTANCE.md
 
