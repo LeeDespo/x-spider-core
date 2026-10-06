@@ -53,7 +53,7 @@
 | 测试与 fixture 纪律 | `docs/04-TESTING-AND-FIXTURES.md` + `fixtures/README.md` |
 | 架构与决策 | `docs/01-ARCHITECTURE.md` + `docs/DECISIONS.md`（ADR） |
 | 进度与风险 | `docs/ROADMAP.md` |
-| 发布 / 打包 / 分发 | `docs/release.md` |
+| 发布 / 打包 / 分发 | `docs/RELEASING.md` |
 | 历史（迁移 / 审阅 / 接入实录） | `docs/history/`——**默认不读**，回归调查、考古、追历史决策才查；与活文档冲突时以活文档为准 |
 
 **不要当真源的东西**：某个具体外壳的当前实现（它是消费者，不是协议）；
@@ -86,7 +86,7 @@
 | 12 | `docs/09-METHOD-INDEX.md` | **接口索引**：26 个 method 直达 `docs/07` 的详细章节 |
 | 13 | `docs/10-ANDROID-INTEGRATION.md` | Android 构建、部署、外壳义务与未完成的运行验收 |
 | 14 | `docs/12-RUNTIME-NOTES.md` | **运行时注记**：下载队列状态机、断点与 epoch、sidecar 生命周期与看门狗 |
-| 15 | `docs/release.md` | **发布 / 打包 / 分发必读**：版本基线、tag 纪律、资产清单、CI 发布流程 |
+| 15 | `docs/RELEASING.md` | **发布 / 打包 / 分发必读**：版本基线、tag 纪律、资产清单、CI 发布流程 |
 | 16 | `docs/history/` | 历史归档（原审阅记录与 mac 接入专项）：**仅回归调查 / 考古时查** |
 
 按任务找入口（「先读」指上面表的序号）：
@@ -155,7 +155,7 @@
 ## 许可证与合规
 
 - 本仓库 **GPL-3.0-only**：解析与分页逻辑源自 GPL-3.0 的 `MiningCattiva/x-spider` 移植，衍生作品须沿用，并在 README 注明出处。
-- aria2-next 是 **GPL-2.0** 的独立程序：通过**子进程 + JSON-RPC**使用属于「聚合」，不传染本仓库；随包分发的具体义务见 `NOTICE` 与 `docs/release.md`。
+- aria2-next 是 **GPL-2.0** 的独立程序：通过**子进程 + JSON-RPC**使用属于「聚合」，不传染本仓库；随包分发的具体义务见 `NOTICE` 与 `docs/RELEASING.md`。
 - 不提供任何面向公众的抓取服务，不发布抓取结果数据集。
 
 ---
@@ -164,7 +164,7 @@
 
 进度与风险台账：`docs/ROADMAP.md`（完成里程碑、闭合缺口或发现新风险后更新它）。
 本文件不保留任何进度叙述；里程碑定义与验收标准在 `docs/05` §2，
-版本基线与发布状态见 `docs/release.md`。
+版本基线与发布状态见 `docs/RELEASING.md`。
 
 ---
 

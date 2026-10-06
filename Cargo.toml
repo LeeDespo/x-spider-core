@@ -38,7 +38,7 @@ tokio = { version = "1", default-features = false, features = [
 ] }
 
 # HTTP：必须 rustls，不要 native-tls（否则交叉编译 Windows/Linux 被 OpenSSL 拖死，
-# 见 docs/00-KICKOFF.md §6 与 docs/03-FFI-SIGNING-PACKAGING.md §6）。
+# 见 docs/03-FFI-SIGNING-PACKAGING.md §6）。
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-native-roots",
     "json",

@@ -1,7 +1,7 @@
 # 发布规则（Release）
 
-> **本文件是本仓库发布事务的唯一真源。** 不在根目录或其他位置维护
-> `release_plan.md` 之类的第二真源；发布语义（范围、资产、tag、验收、义务）的任何修改
+> **本文件是本仓库发布事务的唯一真源。** 不在根目录或其他位置维护第二份发布真源
+> （无论其文件名叫什么）；发布语义（范围、资产、tag、验收、义务）的任何修改
 > 只改这里。`docs/03-FFI-SIGNING-PACKAGING.md` 管的是「打包产物长什么样」，本文管的是
 > 「怎么把它变成一次可追溯的发布」——两者冲突时，发布事务以本文为准。
 >
@@ -259,7 +259,7 @@ test -z "$(git status --porcelain)"
 ```
 
 任一失败即停止。注意第三条把**未跟踪且未被 ignore 的文件也算 dirty**（本仓库把
-一次性启动简报、验收工作单 `ACCEPTANCE.md`、`dist/` 等本地工作文件列进了
+一次性启动简报、验收工作单、`dist/` 等本地工作文件列进了
 `.gitignore`，不影响检查；`AGENTS.md` 已入库，临时杂物必须提交或忽略后再打 tag）。
 
 ### 5.3 Release 只能从 tag 经 CI 构建
@@ -361,16 +361,10 @@ macos       android（matrix: arm64-v8a / x86_64）
 
 ### 8.1 现行规则（已生效）
 
-唯一已接入的消费方是 `x-spider-mac`（macOS SwiftUI 外壳，接入分支已并入主线）。
-它的组件部署与更新方式（其 `docs/DEVELOPMENT.md` §2.7）：
-
-- **查找顺序：外部目录优先**——
-  1. `~/Library/Application Support/moe.keli.xspider.mac/XSpiderCore/`
-  2. `~/Library/Application Support/XSpiderMac/XSpiderCore/`
-  3. `XSpiderMac.app/Contents/Resources/`（随包携带的兜底）
-  4. 可执行文件所在目录；5. `PATH`
-- 目录里放 `xspiderd`（+ 可选 `aria2next`）两个文件即可；**更新组件 = 换文件 + 重新
-  ad-hoc 签名，不必重新构建应用**：
+唯一已接入的消费方是 `x-spider-mac`（macOS SwiftUI 外壳）。它是本组件的**消费方**：
+组件的查找顺序、部署目录与更新方式以外壳仓库自己的文档为准（其 `docs/DEVELOPMENT.md`
+§2.7：**外部目录优先**；更新组件 = 换文件 + 重新 ad-hoc 签名，不必重新构建应用）。
+与本仓库相关的两条纪律，外壳与发布侧都必须遵守：
 
 ```bash
 DIR=~/Library/Application\ Support/moe.keli.xspider.mac/XSpiderCore
@@ -379,16 +373,13 @@ codesign --force --sign - "$DIR"/xspiderd "$DIR"/aria2next   # ad-hoc 签名
 ```
 
 - 漏签 / 带隔离属性的典型表现是**退出码 137 静默死亡**（`docs/03` §1 实测）；
-  外壳以「进程真的起来并完成握手」为绿灯判据，不以文件存在为判据；
-- 外壳 dmg 内置组件兜底（`Resources/Binaries/` 随包携带 `xspiderd` + `aria2next`）；
-  该兜底自外壳 1.1.2 起存在（出处：整理方案对消费端的记录，未在外壳文档中单独复核，
-  机制本身已在其 `docs/DEVELOPMENT.md` 核实）。
+  外壳以「进程真的起来并完成握手」为绿灯判据，不以文件存在为判据。
 
 ### 8.2 本仓库的分发现状（如实）
 
 - GitHub Release 渠道**已存在**：`v0.1.0`（2026-10-04 手工发布，契约 1.5.1，
   仅 macOS 资产；Android 包构建于其后，从未进入任何 Release）；
-- 此前的分发现状 = `x-spider-mac` 发布物内置组件（bundle 兜底）+ 本地 `dist/` 打包
+- 此前的分发现状 = `x-spider-mac` 随包携带组件 + 本地 `dist/` 打包
   （`dist/` 被 `.gitignore` 忽略，是本地构建产物，不是发布物）；
 - **尚未建立**的是本文件定义的完整发布制度：release.yml 自动发布（§6）、
   manifest 三件套（§4.4–§4.5）、Android 资产进入 Release（§4.3）。
@@ -477,7 +468,7 @@ tag 与 Cargo.toml 组件版本不一致
 把未脱敏的 fixtures/raw/ 或任何凭据带进发布物
 宣称「绕过 X 限流」或以抓取服务/数据集形式再分发
 把 .rlib / 裸 staticlib 当成通用发布物
-把发布真源挪出本文件（如在根目录新建 release_plan.md）
+把发布真源挪出本文件（在别处另建发布规则文档）
 ```
 
 ---
@@ -534,7 +525,7 @@ tag 与 Cargo.toml 组件版本不一致
 | 每包 manifest.json 生成 | 未落地（`package.sh` / `android-build.sh` 均未生成） | §4.4 规格 |
 | 顶层 release-manifest.json / SHA256SUMS / THIRD-PARTY-LICENSES.txt | 未落地（现为每包 `.sha256` + 包内 NOTICE/LICENSE.aria2） | 随 release.yml 或先行脚本化 |
 | Android 资产进入 Release | 未发生（v0.1.0 无 Android 资产） | 上两行落地后随下一版发布 |
-| `x-spider-mac` 改为消费 Release 固定资产 | 未发生（现状：bundle 兜底 + 外部目录手工替换 + 签名，§8.1） | 本仓库首个按新制度发布的 Release |
+| `x-spider-mac` 改为消费 Release 固定资产 | 未发生（现状：随包携带 + 外部目录手工替换 + 签名，§8.1） | 本仓库首个按新制度发布的 Release |
 
 过渡期（上表未落地期间）的分发维持 §8.2 现状，但 §5 的 tag / clean tree / 三位一体纪律、
 §7 的许可证义务与 §10 的禁止事项，从现在起对**任何手工分发**同样生效。

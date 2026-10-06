@@ -36,6 +36,7 @@ cookie.txt
 /.codex/
 /.aider*
 /.zcode/
+/.zcodeignore
 
 # --- OS / 编辑器噪音 ---
 .DS_Store
