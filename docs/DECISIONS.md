@@ -514,7 +514,7 @@
      **未完成 / 暂停 / 失败的记录从不落盘**——所以 `load_records` 的"恢复未完成任务"
      分支在生产里是死代码，"重启续传未完成任务"尚未生效。第 4 条只修"已完成记录的写是
      原子的"，**不修**这个缺口。已在 `docs/CONTRACT.md` §4.13、`docs/07` §2.2、
-     `docs/08` §5.3 与 `docs/ROADMAP.md` 风险台账标注。
+     `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.3 与 `docs/ROADMAP.md` 风险台账标注。
   2. 记录路径的**跨进程互斥**仍不足：实例锁只在传 `--state-dir` 时获取，而真实外壳只传
      `--port 0` + `XSPIDER_STATE_DIR`（`x-spider-mac` 的 `XSpiderComponent`）——这条路径
      **没有锁**，两个共享同一 `XSPIDER_STATE_DIR` 的 sidecar 仍会交错写整表快照、丢更新。

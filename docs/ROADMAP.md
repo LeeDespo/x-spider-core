@@ -256,9 +256,9 @@ aria2 外派后端、完整性校验。
 
 | 缺口 | 归属 | 影响 |
 |---|---|---|
-| ~~`post` 没有内嵌的 `quoted`~~ | **组件，已修（1.4.0）** | 当前契约与 DTO 有 `quoted`，见 `docs/08` §5.1 |
-| ~~外壳的"继续"与"重试"重新入队~~ | **外壳，已修** | `already_known` 分支显式调用 `dl.resume`，见 `docs/08` §5.2 |
-| ~~外壳启动时不与 `dl.list()` 对账~~ | **外壳，已修** | 启动无条件对账，并依产品策略暂停恢复的 waiting 任务，见 `docs/08` §5.3 |
+| ~~`post` 没有内嵌的 `quoted`~~ | **组件，已修（1.4.0）** | 当前契约与 DTO 有 `quoted`，见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.1 |
+| ~~外壳的"继续"与"重试"重新入队~~ | **外壳，已修** | `already_known` 分支显式调用 `dl.resume`，见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.2 |
+| ~~外壳启动时不与 `dl.list()` 对账~~ | **外壳，已修** | 启动无条件对账，并依产品策略暂停恢复的 waiting 任务，见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.3 |
 | `crawl.run` 仅接入创建任务流程 | **外壳职责** | SyncStore 锚点日与主页视口填充仍由外壳实现；不属于组件缺口 |
 
 ---

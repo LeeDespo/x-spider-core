@@ -422,6 +422,6 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
   （从 `quoted_status_result` 解析出被引用推文），而紧凑的契约只有 `quoted_id`。
 - 根因：抽取时我按"请求怎么发"逐条对齐，而"给外壳的数据长什么样"这一层
   （`includeQuoted` 是个**入参开关**，说明它给过内嵌对象）被漏掉了。
-- 解法：契约 1.4.0 已给 `post` / `reply` 加 `quoted`（只嵌一层、不递归），见 `docs/08` §5.1。
+- 解法：契约 1.4.0 已给 `post` / `reply` 加 `quoted`（只嵌一层、不递归），见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.1。
 - 教训：对照清单里**要把"参考实现 DTO 的每个可选字段"列一行**，
   特别是那些由入参开关控制的字段——开关本身就是"这里曾经有两种形态"的证据。

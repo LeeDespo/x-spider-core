@@ -57,7 +57,7 @@
   **纯加法，不改不删。**
 - **契约版本 → 1.4.0**：`post` / `reply` 新增 **`quoted`**（内嵌的被引用推文，**只嵌一层**）。
   此前只有 `quoted_id`，接入后引用推文在界面上只剩一个空壳——参考实现有 `mapQuotedPost`，
-  抽取时把这一层漏了（`docs/08-CAPABILITY-MAP.md` §5.1）。
+  抽取时把这一层漏了（现归档于 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.1）。
   取不到（被删/不可见）时该键不出现，`quoted_id` 仍在。**纯加法，不改不删。**
 - **写操作的 141 归到 `unauthorized`**：X 用 141 表达"这个账号被限制写操作"
   （`User is suspended, deactivated or offboarded`）。实测：一个 0 推文、0 关注的账号
