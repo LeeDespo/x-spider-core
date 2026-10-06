@@ -59,7 +59,10 @@
 - 不提交生成物（`target/`、`dist/`）；`.gitignore` 先写好。
 - 依赖纪律：能不加就不加；加之前看许可证（**GPL 兼容性**）与维护状态；
   建议上 `cargo deny` 或至少 `cargo audit`。
-- 锁定工具链（`rust-toolchain.toml` + `Cargo.lock` 入库），保证换机器可复现。
+- 工具链：`rust-toolchain.toml` 记录已验证的 stable、`Cargo.lock` 锁依赖入库，换机器可复现；
+  正式构建的实际 rustc 版本由发布 manifest / Release Notes 记录（见 `docs/RELEASING.md`）。
+- `CHANGELOG.md` 只记**消费方可观察的变化**（变化与影响）；根因、发现过程与
+  设计权衡写 ADR（`docs/DECISIONS.md`）或 history，不写进 CHANGELOG。
 - 日志：结构化 + 分模块；**绝不打印 cookie / token / 完整请求头**。
 
 ---

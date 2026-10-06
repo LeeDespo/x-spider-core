@@ -1,198 +1,140 @@
-# X-Spider Core
+<div align="center">
+  <h1>X-Spider Core</h1>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-edition%202021-orange" alt="Rust"></a>
+  <a href="https://github.com/LeeDespo/x-spider-core/actions/workflows/ci.yml"><img src="https://github.com/LeeDespo/x-spider-core/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/calling%20face-JSON--RPC%20%2F%20C%20ABI-blue" alt="Calling face">
+  <a href="https://github.com/LeeDespo/x-spider-core/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-green" alt="License"></a>
+</div>
 
-X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台的「外壳应用」复用：
-外壳只管界面与产品逻辑，取数、限流、爬取、下载、校验由本仓库提供。
+---
 
-- **主形态**：sidecar 可执行文件 + 本地 JSON-RPC —— 换组件 = 换一个二进制，跨平台一份二进制；
-- **次形态**：cdylib（`libxspider.dylib` / `.so` / `.dll`）—— 给需要进程内调用的外壳。
+> [!IMPORTANT]
+> 本项目定位于**授权账号范围内**的个人数据获取、下载与跨平台组件研究。
+> 不提供面向公众的抓取服务，不发布抓取数据集，也不以绕过平台限流为目标——
+> 限流是这里的一等公民：所有请求过统一闸门，接口与媒体 CDN 的配额分开治理，
+> 触发限流后熔断冷却而不是继续重试。凭据由使用者自己注入，平台规则与适用法律
+> 由使用者自行遵守。
 
-预期消费方：`x-spider-mac`（macOS SwiftUI），以及将来可能出现的 Windows / Linux 外壳。
+## 📖 介绍
 
-> **状态：核心 M0–M4 已完成**（2026-10-01）。
-> 当前契约版本：1.5.2（以 docs/CONTRACT.md 为准）
-> 下载队列支持持久化状态恢复：Waiting/Active 重启后变为 Waiting，Paused 保持暂停，
-> Error（包括取消）不会自动重试；取消任务不会自动复活，用户可在清理结束后显式恢复。
-> Android NDK 构建、sidecar 打包与构建检查已实现；模拟器/设备、Aria2Next Android 二进制与 live 网络验收状态见 [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md)。
-> 7 个取数端点 + 两个下载后端（内置 HTTP / **Aria2Next**）
-> + 下载队列（幂等 / 暂停恢复 / 重启状态恢复）+ 爬取调度（候选清单 + `done_reason`），
-> 全部有真实响应 fixture 或真二进制 E2E 覆盖；另有一个**只经契约**的 CLI 当第一个真实消费方
-> （`bins/xspider-cli`）。进度与未决见 [`docs/ROADMAP.md`](docs/ROADMAP.md) 与
-> [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md)。
+X（Twitter）数据获取与下载的 **Rust 核心组件**：外壳应用只管界面与产品逻辑，
+取数、限流、爬取、下载、校验由本组件提供。两套交付形态，共用同一份实现、行为一致：
 
-## 多端适配程度
+- **sidecar 可执行文件 + 本地 JSON-RPC（主形态）**——换组件 = 换一个二进制；
+- **cdylib（次形态）**——给需要进程内调用的外壳（`libxspider.dylib` / `.so` / `.dll`）。
 
-| 平台 | 形态 | 状态 | 依据 |
-|---|---|---|---|
-| macOS ARM64 | sidecar + cdylib 双形态 | **已验收** | 离线质量门、双形态/CLI smoke、release 打包与 ad-hoc 签名检查通过 |
-| Android（NDK） | arm64-v8a + x86_64 的 native 包 | **部分验收** | 两个 ABI 构建打包通过；API 36 模拟器普通应用 UID 冒烟（HTTP/stdio/C ABI、本地下载、无凭据公开 TLS 探测）通过。**未验收**：账号 GraphQL live、真实 16 KB 页设备（模拟器为 4 KB 页）、Doze/后台生命周期、Aria2Next Android 后端 |
-| Windows / Linux | —— | **未开始** | 无构建与验收记录 |
-
-**未验收能力不宣称支持**：每端的逐项验收边界与证据见
-[`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) §8 与
-[`docs/ROADMAP.md`](docs/ROADMAP.md)。
-
-## 组件
-
-| 组件 | 职责 | 状态 |
-|---|---|---|
-| `crates/xspider-core` | 共享内核：HTTP 客户端、凭据注入、限流闸门与 429 熔断、请求签名、错误分类 —— **不对外发布** | ✅ |
-| `crates/xspider-fetch` | 取数：用户、媒体/推文时间线、推文详情、搜索、主页时间线、关注、关注态、写操作 | ✅ 7 个读端点 + `fetch.is_following` + `fetch.mutate` |
-| `crates/xspider-download` | 爬取调度 + 下载：翻页、筛选、队列、并发、断点续传、完整性校验 | ✅ 两个后端 + 队列 + 爬取调度 |
-| `crates/xspider-ffi` | C ABI（三个函数）+ method 派发 | ✅ |
-| `bins/xspiderd` | sidecar：本地 JSON-RPC | ✅ |
-| `bins/xspider-cli` | **第一个真实消费方**：只经契约驱动组件（取一页 → 下 N 个媒体 → 报告） | ✅ |
-
-依赖方向是单向的：`ffi / sidecar → 两个组件 → core`。**两个组件之间不互相依赖**
-（爬取与下载通过外壳的「候选清单」衔接）。
-
-## 对外契约
-
-只有三个 C ABI 函数，所有能力都走一个入口：
+对外只有三个 C ABI 函数，所有能力走一个 method 字符串入口（加法式演进，外壳无需改动）：
 
 ```c
-char* xspider_version(void);                                  // 契约版本握手，如 "1.5.2"
+char* xspider_version(void);                                  // 契约版本握手
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
-void  xspider_free(char* ptr);                                // 释放返回的字符串
+void  xspider_free(char* ptr);                                // 释放返回字符串
 ```
 
-**新增能力 = 新增一个 method 字符串**（加法式演进，外壳无需改动）。
 契约里不会出现端点路径、queryId、`features` 常量或 HTTP 头——那些是组件的实现细节，
 写进契约就等于把契约焊死在今天的 X 上（有自动化测试守着这一条）。
 
-- 人读版：[`docs/CONTRACT.md`](docs/CONTRACT.md)
-- 机器可读版：[`contract/xspider.schema.json`](contract/xspider.schema.json)
-- 变更记录：[`CHANGELOG.md`](CHANGELOG.md)
+> 当前契约版本：1.5.2（以 docs/CONTRACT.md 为准）
 
-当前共 **26 个 method**：`system.*`（2）、`auth.*`（2）、`net.*`（4，含 `net.probe_size`）、
-`fetch.*`（9：7 个读端点 + `fetch.is_following` + 写操作 `fetch.mutate`）、`dl.*`（8）、`crawl.run`（1）。
+`x-spider-mac`（macOS SwiftUI）是已接入的真实消费方；`bins/xspider-cli` 是仓库自带的
+**第一个真实消费方**——它不链接任何本仓库 crate（守卫测试强制），只经契约驱动组件，
+契约缺什么、哪里别扭，它第一个炸。
 
-逐 method 的**作用与读写属性**见 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md)，
-每行链到 [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) 的详细小节。
+## 🧭 多端适配程度
 
-## 前提
+| 调用面 / 平台 | 现状 |
+|---|---|
+| **macOS ARM64**：sidecar（HTTP / stdio）+ cdylib | ✅ **正式**：离线质量门、双形态 + CLI smoke、release 打包与 ad-hoc 签名检查通过 |
+| **Android**（NDK，arm64-v8a / x86_64） | ⚠️ **部分验证**：构建打包与 API 36 模拟器普通应用 UID 冒烟通过；账号 GraphQL live、真实 16 KB 页设备、Doze、Aria2Next Android 后端未验收 |
+| **Windows / Linux** | ❌ 未适配 |
 
-- **Rust 工具链**：用 [rustup](https://rustup.rs) 安装。本仓库用 `rust-toolchain.toml` 锁定工具链，
-  但 **Homebrew 装的 `cargo` 是真实二进制、不读该文件**；若它排在 PATH 前面，锁定会被静默忽略——
-  请确保 rustup 的 `~/.cargo/bin` 排在前面（或直接用 `~/.cargo/bin/cargo`）：
-  `export PATH="$HOME/.cargo/bin:$PATH"`。
-- **macOS**：需要 Command Line Tools 提供的 `cc`（冒烟脚本会编译 `script/cdylib_check.c`）：
-  运行 `xcode-select --install`。
-- **python3**：`script/smoke.sh` 与 fixture 脱敏脚本用到（系统自带即可）。
-- 依赖已缓存在本机时可用 `--offline`（更快也更稳）；首次或改过依赖需先联网 `cargo fetch`。
+「能构建」不等于「正式支持」：逐项验收边界与证据以
+[`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) §8、
+[`docs/RELEASING.md`](docs/RELEASING.md) §3 与
+[`docs/ROADMAP.md`](docs/ROADMAP.md) 为准。
 
-## 快速开始
+## 🚀 快速开始
+
+前提：[rustup](https://rustup.rs) 安装的 Rust 工具链（本机 PATH 里 Homebrew 的 cargo
+不读 `rust-toolchain.toml`，请确保 `~/.cargo/bin` 排在前面）；macOS 需要 Command Line
+Tools 的 `cc`（`xcode-select --install`）；`python3`（系统自带即可）。
 
 ```bash
-# 默认离线：不碰网络，用真实响应 fixture 回放
+# 一键离线冒烟：构建 → cdylib dlopen → sidecar 握手 → 调用断言 → 无残留
 ./script/smoke.sh
-```
 
-冒烟脚本会一次跑完：构建 → `dlopen` 验 cdylib 的三个符号 → 起 sidecar 读 ready 行
-→ `curl` 调 `system.version` 与 `fetch.get_user` 并断言字段 → 关停 → 断言无残留进程。
-
-下载与爬取（全部离线，用本地 HTTP fixture server）：
-
-```bash
-cargo test -p xspider-download                    # 单元 + 队列 E2E + HTTP E2E + Aria2Next E2E
-cargo test -p xspider-download --test aria2_e2e   # 8 条真二进制 E2E（含"404 被引擎报成成功"）
-```
-
-CLI（第一个真实消费方，只经契约；离线也能跑）：
-
-```bash
-# 离线：fixture 回放，只规划不下载（CI 友好）
+# CLI（第一个真实消费方）离线示例：fixture 回放、只规划不下载
 cargo run -p xspider-cli -- --screen-name demo_user --fixture-dir fixtures --dry-run
 
-# 看组件支持哪些 method（外壳的启动自检）
-cargo run -p xspider-cli -- --list-methods --fixture-dir fixtures
+# 手动起 sidecar（stdout 打印一行 ready：port / token / version / build）
+cargo run -p xspiderd -- --port 0
+curl -s http://127.0.0.1:$PORT/ -H "X-XSpider-Token: $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"method":"fetch.get_user","params":{"screen_name":"jack"}}'
 
-# live：真的取一页、下 3 个媒体（需要凭据与代理）
-cargo run -p xspider-cli -- --screen-name tesla --count 3 --out ./downloads \
-  --proxy "$XSPIDER_PROXY" --segments 4
-```
-
-它不链接任何本仓库的 crate——契约缺什么、哪里别扭，它第一个炸。
-接入手册与实测记录见 [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md)。
-
-打包：
-
-```bash
-./script/package.sh                                        # 产出 dist/xspiderd-<ver>-<平台>-<架构>.tar.gz
-XSPIDER_ARIA2_PATH=/path/to/aria2next ./script/package.sh   # 顺带带上 Aria2Next（附 GPL-2.0 声明）
-```
-
-Android native libraries / sidecar 构建包（需要 rustup 与 NDK 27.3.13750724；输出不是 APK）：
-
-```bash
+# Android native 包（需要 NDK 27.3.13750724；输出不是 APK）
 export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.3.13750724"
 ./script/android-build.sh
 ```
 
-手动起 sidecar：
-
-```bash
-cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.5.2"}
-
-# 另开一个终端，用上面读到的 port 与 token
-curl -s http://127.0.0.1:$PORT/ -H "X-XSpider-Token: $TOKEN" -H 'Content-Type: application/json' \
-     -d '{"method":"fetch.get_user","params":{"screen_name":"jack"}}'
-```
-
-拿真实数据（需要你自己的账号 cookie 与可用的代理）：
-
-```bash
-cargo run -p xspiderd -- --port 0
-# 然后：auth.set_cookie → fetch.get_user
-```
-
 **凭据只进不出**：cookie 不落盘、不打日志、不回传，由外壳通过 `auth.set_cookie` 注入。
+完整命令手册（下载 E2E / live / 录制 / 脱敏 / sidecar 调试）见
+[`docs/05-WORKFLOW.md`](docs/05-WORKFLOW.md) §9；正式打包与 Release 规则见
+[`docs/RELEASING.md`](docs/RELEASING.md)。
 
-## 文档
+## ✨ 能力概要
 
-| 文件 | 内容 |
+**取数**：用户、媒体 / 推文时间线、推文详情树、搜索、主页时间线、关注关系与互动写操作
+（点赞 / 转推 / 书签 / 关注，成败看返回体而不只看状态码）。
+
+**爬取**：分页调度、时间区间、候选筛选、结束原因（`done_reason`）、完整推文回传。
+
+**下载**：内置 HTTP 与 Aria2Next 双后端、下载队列（幂等 / 暂停恢复 / 取消）、断点续传、
+完整性校验、重启状态恢复。
+
+**运行时**：凭据注入、代理热切换、统一限流与 429 熔断、sidecar 生命周期与父进程看门狗。
+
+完整接口以 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) 为准（逐行链到
+[`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) 的详细小节）。
+
+## 🏗️ 组件结构
+
+| 组件 | 职责 |
 |---|---|
-| [`docs/CONTRACT.md`](docs/CONTRACT.md) | 对外契约：method 表、字段、错误码、版本策略 |
-| [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) | **接口清单**：26 个 method 的作用、只读/写属性，逐行链到接口参考 |
-| [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、调用时序 |
-| [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力地图**：26 个 method 的「能力 → 实现位置 → 测试覆盖」与有意不进组件的事 |
-| [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) | Android NDK 构建、sidecar 部署与外壳接入边界；列出尚未完成的设备验收 |
-| [`docs/history/2026-10-05-review-resolution.md`](docs/history/2026-10-05-review-resolution.md) | 2026-10-05 审阅发现的归并处置与未验收边界（原 `docs/11`，已归档进 history） |
-| [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册：用 CLI 当「外壳替身」的接入实测与契约反馈 |
-| [`AGENTS.md`](AGENTS.md) | **开发 / Agent 规范入口**：仓库规则、必读文档的指路（踩坑正文按主题在 docs/02–05 与 12） |
-| [`docs/release.md`](docs/release.md) | **发布与分发规则**（发布事务的唯一真源）：版本基线、打包、签名、发布义务 |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | 决策台账（ADR）：每条决定及其「何时该被推翻」 |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | 里程碑、实际进度、风险台账 |
-| [`CHANGELOG.md`](CHANGELOG.md) | 对外可见的变化 |
-| [`NOTICE`](NOTICE) | 第三方组件出处与 GPL 义务（含 Aria2Next） |
-| [`docs/01-ARCHITECTURE.md`](docs/01-ARCHITECTURE.md) | 组件边界、契约形状、下载引擎三种后端、任务归属 |
-| [`docs/02-X-DOMAIN-NOTES.md`](docs/02-X-DOMAIN-NOTES.md) | X 领域知识与实测踩坑清单 |
-| [`docs/03-FFI-SIGNING-PACKAGING.md`](docs/03-FFI-SIGNING-PACKAGING.md) | FFI / 签名 / 分发 / 交叉编译的实测结论 |
-| [`docs/04-TESTING-AND-FIXTURES.md`](docs/04-TESTING-AND-FIXTURES.md) | 测试策略：fixture 回放、live canary、契约测试 |
-| [`docs/05-WORKFLOW.md`](docs/05-WORKFLOW.md) | 工作循环、ADR 纪律、工程陷阱清单 |
-| [`fixtures/README.md`](fixtures/README.md) | fixture 怎么产生、覆盖度、**哪些缺口是有意留的** |
+| `crates/xspider-core` | 共享内核：HTTP 客户端、凭据注入、限流熔断、签名、错误分类（不对外发布） |
+| `crates/xspider-fetch` | 取数：用户 / 时间线 / 详情 / 搜索 / 关注 / 写操作 |
+| `crates/xspider-download` | 爬取调度 + 下载：翻页、筛选、队列、并发、断点续传、完整性校验 |
+| `crates/xspider-ffi` | C ABI（三个函数）+ method 派发 |
+| `bins/xspiderd` | sidecar：本地 JSON-RPC |
+| `bins/xspider-cli` | 仓库自带的契约消费方（守卫测试强制它不链接任何 crate） |
 
-> method 清单以 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) 为准。
-
-## 质量门
-
-```bash
-cargo test --workspace            # 默认离线，不碰网络
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all --check
+```text
+sidecar / C ABI      ← 外壳从这里接入（HTTP ↔ cdylib 切换只换传输，契约载荷不变）
+      ↓
+fetch / download     ← 两个组件互不依赖（经外壳的「候选清单」衔接）
+      ↓
+core（共享内核）
 ```
 
-真网络测试一律需要 `XSPIDER_LIVE=1` 门控，且默认 `#[ignore]`
-（会消耗账号配额，不要在 CI 里默认跑）。
+依赖方向是单向的；分层与边界详见 [`docs/01-ARCHITECTURE.md`](docs/01-ARCHITECTURE.md)。
 
-## 许可证
+## 📚 文档导航
 
-**GPL-3.0-only**。请求构造、分页与解析逻辑移植自 GPL-3.0 的
+* **[docs/README.md](docs/README.md)** —— 完整文档索引（所有主题文档从这里进）
+* **[docs/CONTRACT.md](docs/CONTRACT.md)** —— 对外契约（method 表、字段、错误码、版本策略）
+* **[docs/09-METHOD-INDEX.md](docs/09-METHOD-INDEX.md)** —— 接口入口
+* **[docs/06-CONSUMER-INTEGRATION.md](docs/06-CONSUMER-INTEGRATION.md)** —— 消费端接入手册
+* **[docs/RELEASING.md](docs/RELEASING.md)** —— 发布规则（唯一真源）
+* **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前路线图
+* **[AGENTS.md](AGENTS.md)** —— 开发 / Agent 规范入口（开工先读）
+
+## 📄 许可证
+
+**GPL-3.0-only**（[LICENSE](LICENSE)）。请求构造、分页与解析逻辑移植自 GPL-3.0 的
 [`MiningCattiva/x-spider`](https://github.com/MiningCattiva/x-spider) 及其 macOS 移植，
-衍生作品须沿用同一许可证。第三方组件的出处与义务（含 aria2-next 的 GPL-2.0 声明）
-见 [`NOTICE`](NOTICE)。
+衍生作品须沿用同一许可证。第三方组件的出处与义务（含 aria2-next 的 GPL-2.0 声明）见
+[NOTICE](NOTICE)。
 
-## 定位
+## ⚠️ 使用说明
 
-个人自用、**授权账号范围内**的工具。不提供任何面向公众的抓取服务，不发布抓取数据集，
-也不以「绕过平台限流」为目的——限流是这里的一等公民：所有请求都过统一的限流闸门，
-接口与媒体 CDN 的配额分开治理，触发限流后熔断冷却而不是继续重试。
+个人自用工具。使用本项目产生的一切后果由使用者自行负责；请遵守 X 的服务条款与
+所在地区适用法律，仅在自己的授权范围内使用。

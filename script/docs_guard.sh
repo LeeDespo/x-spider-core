@@ -6,10 +6,16 @@
 #   c. 活跃文档（README.md、AGENTS.md、docs/*.md）不得引用 docs/00-KICKOFF.md——
 #      它不随仓库分发，活跃文档引用它等于指向一个新 clone 里不存在的文件。
 #      （docs/history/ 整个目录与 docs/00-KICKOFF.md 本身不在扫描范围。）
-#   d. README.md 与 AGENTS.md 的 Markdown 相对链接：目标必须存在、不得被
-#      .gitignore 忽略、且不得指向 docs/00-KICKOFF.md 或 ACCEPTANCE.md。
+#   d. 全仓 Markdown 相对链接（README.md、AGENTS.md、docs/ 下所有 tracked 的 .md，
+#      含 docs/history/）：目标必须存在、不得被 .gitignore 忽略、且不得指向
+#      docs/00-KICKOFF.md 或 ACCEPTANCE.md。历史文档只查链接目标存在，
+#      不要求其内容仍是现行真源。
 #   e. 契约版本同步：README 的「当前契约版本：X.Y.Z」与 docs/CONTRACT.md 的
 #      「契约版本：**X.Y.Z**」（带星号的加粗写法）必须是同一个版本号。
+#   f. 废弃路径与第二真源扫描：tracked 的文档 / toml / CI / 脚本里不得出现
+#      docs/00-KICKOFF.md、ACCEPTANCE.md、release_plan.md、docs/release.md 字样
+#      （docs/history/ 允许作为历史证据提及；docs_guard.sh 自身包含这些字面量，
+#      是检查逻辑本身，排除）。
 # 用法：bash script/docs_guard.sh（脚本自动切到仓库根，任意目录可运行）。
 # 注意：AGENTS.md 尚未提交时检查 a 会失败——这是护栏本意，不是误报。
 # 写法约定：双引号里紧跟中文标点的变量引用一律写作 ${var}——bash 在某些 locale
@@ -63,10 +69,11 @@ if [ "${c_bad}" -eq 0 ]; then
   echo "  通过"
 fi
 
-# ---------- 检查 d：README.md / AGENTS.md 的 Markdown 相对链接 ----------
-echo "检查 d：README.md / AGENTS.md 的 Markdown 相对链接（目标存在、不被忽略、不含 00-KICKOFF/ACCEPTANCE）"
+# ---------- 检查 d：全仓 Markdown 相对链接 ----------
+echo "检查 d：Markdown 相对链接（README / AGENTS / docs/**，含 history：目标存在、不被忽略、不含 00-KICKOFF/ACCEPTANCE）"
 d_bad=0
-for md in README.md AGENTS.md; do
+md_list=$( { printf '%s\n' README.md AGENTS.md; git ls-files 'docs' | grep '\.md$'; } | sort -u )
+for md in ${md_list}; do
   if [ ! -f "${md}" ]; then
     report_fail "找不到 ${md}。"
     d_bad=1
@@ -148,10 +155,34 @@ if [ "${e_bad}" -eq 0 ]; then
   echo "  通过（契约版本：${readme_vers}）"
 fi
 
+# ---------- 检查 f：废弃路径与第二真源扫描 ----------
+echo "检查 f：tracked 文件不引用已淘汰 / 本地忽略的文档路径（docs/00-KICKOFF.md、ACCEPTANCE.md、release_plan.md、docs/release.md）"
+f_bad=0
+# 扫描范围：文档 / toml / CI / 脚本。docs/history/ 是历史证据，允许提及当年的文件名；
+# docs_guard.sh 自身包含这些字面量（检查逻辑本身），两者都排除。
+scan_files=$(git ls-files 'README.md' 'AGENTS.md' '*.toml' 'docs' '.github' 'script' \
+  | grep -E '\.(md|toml|ya?ml|sh|c|py)$' \
+  | grep -vE '^(script/docs_guard\.sh|docs/history/)') || scan_files=""
+if [ -z "${scan_files}" ]; then
+  report_fail "检查 f 的扫描文件列表为空（git ls-files 异常），无法完成扫描。"
+  f_bad=1
+fi
+if [ -n "${scan_files}" ]; then
+  while IFS= read -r f; do
+    if grep -nHE 'docs/00-KICKOFF\.md|ACCEPTANCE\.md|release_plan\.md|docs/release\.md' -- "${f}"; then
+      report_fail "${f} 引用了已淘汰 / 本地忽略的文档路径（行号见上）。活跃文件不得依赖它们；历史材料放 docs/history/ 并用文字说明。"
+      f_bad=1
+    fi
+  done <<< "${scan_files}"
+fi
+if [ "${f_bad}" -eq 0 ]; then
+  echo "  通过"
+fi
+
 # ---------- 汇总 ----------
 if [ "${errors}" -gt 0 ]; then
   echo "" >&2
   echo "文档护栏：共 ${errors} 项失败（详见上方「失败」行），不通过。" >&2
   exit 1
 fi
-echo "文档护栏：检查 a/b/c/d/e 全部通过。"
+echo "文档护栏：检查 a/b/c/d/e/f 全部通过。"

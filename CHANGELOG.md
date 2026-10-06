@@ -1,6 +1,9 @@
 # CHANGELOG
 
 本文件记录**对外可见**的变化：契约、行为、产物。内部重构不写在这里。
+每条只写**变化与影响**；根因分析、发现过程与设计权衡写进
+[`docs/DECISIONS.md`](docs/DECISIONS.md)（ADR）或 [`docs/history/`](docs/history/)，
+不在这里展开。
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本遵循[语义化版本](https://semver.org/lang/zh-CN/)。
@@ -20,6 +23,10 @@
   详情链接直达 `docs/07` 的对应小节。
 - **新增 [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md)**：Android 构建、
   sidecar 部署与外壳职责；明确构建通过不等于模拟器、设备或 live 验收。
+- **文档体系收敛（2026-10-07）**：README 对齐 HelperNext 信息架构并新增 `docs/README.md`
+  文档门户；发布真源更名 `docs/RELEASING.md`；`docs/ROADMAP.md` 的 M0–M4 历史验收快照迁入
+  `docs/history/milestones-2026-10.md` 后瘦身为「只描述现在」；`docs_guard.sh` 增加废弃路径
+  扫描与全仓 Markdown 链接检查。
 
 ### 契约（1.5.2 PATCH，ADR-042）
 - `crawl.run` 没有下一页时省略 `next_cursor`，与可选字段约定一致。
