@@ -579,7 +579,7 @@ impl Engine {
         self.stack.set_proxy(proxy.clone())?;
         // 下载队列**如果已经起来**，也要跟着换代理。
         // 只换取数侧会得到一个很具体的坏症状：列表刷得出来，文件一个都下不动
-        // （`AGENTS.md` 踩坑记录 8：代理端口一天内变好几次）。
+        // （踩坑 8：代理端口一天内变好几次，见 docs/05-WORKFLOW.md 的踩坑总索引）。
         if let Some(queue) = self.download.get() {
             queue.set_proxy(proxy)?;
         }

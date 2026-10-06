@@ -120,7 +120,7 @@ canary 全绿：8 项
       （空页：翻到最后一页；429：不主动触发，等它自然出现或由本地 server 模拟）；
       第三类只能等 X 真的改版时由 canary 自动落盘。
 - [x] `fetch.mutate`（点赞/转推/书签/关注，8 种 action）——**1.3.0 已实现**，
-      成败看返回体（`errors[]`）而不只看状态码，见踩坑记录 38。
+      成败看返回体（`errors[]`）而不只看状态码，见踩坑 38（docs/05-WORKFLOW.md 的踩坑总索引）。
 - [ ] 把 `x-rate-limit-*` 响应头接进限流状态（**主动**限流，而不只等 429）。
       fixture 里已留档（`normal.json` 的 headers）。
 - [ ] 日期筛选的更多边界：跨月/跨年、单日区间已有测试；
@@ -219,7 +219,7 @@ aria2 外派后端、完整性校验。
 **目标**：本仓库是 `x-spider-mac` 的抽取，验收标准是"外壳只需略微改动就能接进来"。
 所以按参考实现纪律逐项对照取数与下载两条路径；行为基准是接入前历史实现与备份分支。
 
-产出（详见 `docs/DECISIONS.md` ADR-033/034/035 与踩坑记录 32–35）：
+产出（详见 `docs/DECISIONS.md` ADR-033/034/035 与踩坑 32–35，见 docs/05-WORKFLOW.md 的踩坑总索引）：
 
 - **新增契约 method `net.probe_size`**（契约版本 1.0.0 → 1.1.0）：外壳可以在**决定下不下之前**
   按体积过滤，而不必自己再实现一套 CDN 探测；
@@ -278,4 +278,10 @@ aria2 外派后端、完整性校验。
 
 按 ADR-042 增量补齐 Android 专用 TLS、NDK 构建与 sidecar 打包脚本及 CI 构建检查，修复记录恢复与游标省略，并同步审阅指出的文档漂移。macOS 信任根与默认行为保持；Android 设备、Aria2Next 与 live 验证单独记录，不以构建通过代替。
 
-本轮最终源码通过独立审阅；macOS 离线质量门、双形态/CLI smoke 与 release 打包签名检查全绿。Android arm64-v8a/x86_64 实际链接打包通过，arm64 API 36 普通应用 UID 下 HTTP/stdio/C ABI、32,791 字节本地下载及经 17890 的无凭据公开 TLS 探测通过。16 KB 仅 ELF/APK 对齐验证，实际设备为 4 KB 页；账号 GraphQL live、x86_64 设备、Aria2Next Android、后台生命周期和 Android CI 实跑仍未验收。命令与完整边界见 docs/10 §8；报告发现的归并处置见 docs/11。
+本轮最终源码通过独立审阅；macOS 离线质量门、双形态/CLI smoke 与 release 打包签名检查全绿。Android arm64-v8a/x86_64 实际链接打包通过，arm64 API 36 普通应用 UID 下 HTTP/stdio/C ABI、32,791 字节本地下载及经 17890 的无凭据公开 TLS 探测通过。16 KB 仅 ELF/APK 对齐验证，实际设备为 4 KB 页；账号 GraphQL live、x86_64 设备、Aria2Next Android、后台生命周期和 Android CI 实跑仍未验收。命令与完整边界见 docs/10 §8；报告发现的归并处置见 docs/history/2026-10-05-review-resolution.md。
+
+---
+
+## 2026-10-06 文档体系整理（已实施）
+
+2026-10-06 文档体系整理：AGENTS.md 纳入版本控制并瘦身为路由入口；踩坑 45 条按主题迁入 docs/02/03/04/05/12（docs/05 建总索引）；docs/11 与 mac 接入实录迁入 docs/history/；docs/06/08 改为消费端中立口径；新增 docs/release.md 发布真源与 CI 文档护栏。

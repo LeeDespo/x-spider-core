@@ -11,7 +11,7 @@
 >
 > 本册不是开发日志：这里只写**当前版本的事实**。变更历史见 [`CHANGELOG.md`](../CHANGELOG.md)。
 
-**版本**：契约 `1.5.1` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method。
+**版本**：契约 `1.5.2` · 构建 `0.1.0` · **26 个契约 method** + 1 个 sidecar 传输 method（示例与版本以 docs/CONTRACT.md 为准）。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ```bash
 $ xspiderd --port 0
-ready {"port":49152,"token":"…","version":"1.5.1","build":"0.1.0"}     # ← stdout，只有这一行
+ready {"port":49152,"token":"…","version":"1.5.2","build":"0.1.0"}     # ← stdout，只有这一行
 
 # 另开一个终端（port / token 用上面这一行里的）
 $ curl -s http://127.0.0.1:49152/ \
@@ -175,7 +175,7 @@ Unix sidecar 使用内核 `flock`；进程退出时由内核释放锁。锁文�
 ## 3. cdylib 形态
 
 ```c
-char* xspider_version(void);                                  // "1.5.1"
+char* xspider_version(void);                                  // "1.5.2"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放上面两个函数返回的字符串
 ```
@@ -203,7 +203,7 @@ void  xspider_free(char* ptr);                                // 释放上面两
 **出参**
 
 ```json
-{ "contract_version": "1.5.1", "build_version": "0.1.0", "transport": "sidecar" }
+{ "contract_version": "1.5.2", "build_version": "0.1.0", "transport": "sidecar" }
 ```
 
 | 字段 | 说明 |

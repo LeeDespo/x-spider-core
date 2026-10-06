@@ -207,7 +207,7 @@ mod tests {
 
     /// 子进程（Aria2Next）不吃"跟随环境变量"，所以必须能解析出一个具体 URL。
     /// `Env` 分支要读环境变量，测试里不碰它——那种用例在并行测试下会互相污染
-    /// （`AGENTS.md` 踩坑记录 6 是同一个教训）。
+    /// （踩坑 6 是同一个教训，见 docs/05-WORKFLOW.md 的踩坑总索引）。
     #[test]
     fn proxy_resolves_to_a_concrete_url() {
         assert_eq!(ProxyConfig::Off.resolve_url(), None);

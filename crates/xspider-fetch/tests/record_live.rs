@@ -466,7 +466,7 @@ async fn record_search_query_id_source() {
     // 一个**真实存在**的兄弟 operation：名字里含 SearchTimeline 但不是它。
     // 这正是"不锚定 operationName 就会匹配错"的现场证据。
     // 注意元组顺序是 (queryId, operationName)——第一版写反了，导致 sibling_excerpt 录成空，
-    // 而"锚点必需"那条测试因此**静默地少断言了一半**（见 AGENTS.md 踩坑记录）
+    // 而"锚点必需"那条测试因此**静默地少断言了一半**（见 docs/05-WORKFLOW.md 的踩坑总索引）
     let (sibling_query_id, sibling_name) = pairs
         .iter()
         .find(|(_, name)| name.contains("SearchTimeline") && name != "SearchTimeline")

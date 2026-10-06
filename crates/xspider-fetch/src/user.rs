@@ -1,6 +1,6 @@
 //! `fetch.get_user`：按 `screen_name` 取用户。
 //!
-//! 这是 M0 垂直切片选中的那一个端点（`docs/00-KICKOFF.md` §4）。选它的理由：
+//! 这是 M0 垂直切片选中的那一个端点（见 `docs/ROADMAP.md` 的 M0 节）。选它的理由：
 //! 它同时覆盖了**签名**（需要 `x-client-transaction-id`）、**凭据**（cookie + ct0）、
 //! **GraphQL GET + URL 编码**、**DTO 映射**、以及**"不存在"这类结构化错误**，
 //! 但没有分页——分页语义留在 M1 随 `user_medias` 一起做。

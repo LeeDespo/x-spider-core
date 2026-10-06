@@ -28,7 +28,7 @@
 ## 2. 契约：一个入口 + JSON 边界
 
 ```
-xspider_version() -> char*                   // "1.5.1"，握手用
+xspider_version() -> char*                   // "<contract-version>"，握手用；当前值见 docs/CONTRACT.md
 xspider_call(method, json_in) -> json_out    // 所有能力
 xspider_free(char*)
 ```

@@ -132,7 +132,7 @@ impl HttpResponse {
 ///
 /// 注意字段顺序与 X 的时间格式**不同**：HTTP-date 是「日 月 年 时:分:秒 GMT」，
 /// X 的 `created_at` 是「周 月 日 时:分:秒 偏移 年」（见 `crate::xdate`）。
-/// 第一版就是照抄了后者，测试当场红（见 AGENTS.md 踩坑记录）。
+/// 第一版就是照抄了后者，测试当场红（见 docs/05-WORKFLOW.md 的踩坑总索引）。
 pub fn unix_secs_from_http_date(raw: &str) -> Option<u64> {
     let parts: Vec<&str> = raw.split_whitespace().collect();
     if parts.len() != 6 {

@@ -498,7 +498,7 @@ fn parse_media(value: &Value) -> Option<Media> {
 /// （snake_case，152 处）。只认一种会让 `variants` 变成空数组 →
 /// 视频/动图选不出可下载 URL → `parse_media` 返回 `None` →
 /// 于是 `require_media` 把它筛掉，表现为"明明有媒体却整页解析成空"
-/// （这是真实 fixture 抓出来的，见 AGENTS.md 踩坑记录）。所以两种都认。
+/// （这是真实 fixture 抓出来的，见 docs/05-WORKFLOW.md 的踩坑总索引）。所以两种都认。
 fn parse_variants(value: &Value) -> Vec<MediaVariant> {
     value
         .get("video_info")
@@ -700,7 +700,7 @@ mod tests {
     }
 
     /// 实测：真实响应用 `content_type`（snake_case），而上游代码写的是 `contentType`。
-    /// 两种都必须认——只认一种会让视频整条解析不出来（见 AGENTS.md 踩坑记录）。
+    /// 两种都必须认——只认一种会让视频整条解析不出来（见 docs/05-WORKFLOW.md 的踩坑总索引）。
     #[test]
     fn variants_are_read_with_both_key_spellings() {
         for key in ["content_type", "contentType"] {

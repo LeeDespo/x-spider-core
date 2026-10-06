@@ -285,7 +285,7 @@ async fn drive(side: &mut Sidecar, args: &Args) -> Result<i32, RpcError> {
 /// 对**传输层失败**做有界重试（1s / 3s 退避）。
 ///
 /// 组件内部对每次出网已经重试 3 次（150ms/450ms 退避，见 `crates/xspider-core`），
-/// 但实测本机代理会出现**持续一两秒的整段拒连**（`AGENTS.md` 踩坑 8），
+/// 但实测本机代理会出现**持续一两秒的整段拒连**（踩坑 8，见 docs/05-WORKFLOW.md 的踩坑总索引），
 /// 那一小段预算不够。外壳——尤其是一次跑完就退出的 CLI——需要自己再兜一层。
 ///
 /// 只重试 `transport`：契约错误（unauthorized / rate_limited / not_found / parse…）

@@ -1,7 +1,7 @@
 /*
  * 最小 C 程序：dlopen 生成的 cdylib，调用三个 C ABI 函数。
  *
- * 为什么必须真有这一步（docs/00-KICKOFF.md §6、M0 验收 ①）：
+ * 为什么必须真有这一步（docs/05-WORKFLOW.md 的命令手册/环境初始化；M0 验收 ① 见 docs/ROADMAP.md 的 M0 节）：
  * 「cdylib 能编译出来」和「cdylib 能被别的语言真的加载并调用」是两件事。
  * 少了这一步，次形态是否可用完全靠运气——而它的失败方式是**静默**的
  * （未签名 / 被 quarantine 的产物会被内核 SIGKILL，见 docs/03 §1）。

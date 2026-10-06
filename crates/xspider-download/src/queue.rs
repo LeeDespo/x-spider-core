@@ -256,7 +256,7 @@ struct JobEntry {
     ///
     /// 为什么需要它：暂停→恢复会立刻派发新一轮，而上一轮的任务可能还在收尾；
     /// 没有 epoch 的话，上一轮的"已取消"会把新一轮刚设好的 waiting 覆盖成 error
-    /// （实现时真的踩到了，见 AGENTS.md 踩坑记录）。
+    /// （实现时真的踩到了，见 docs/05-WORKFLOW.md 的踩坑总索引）。
     epoch: u64,
     /// 取消请求先写盘，再中止传输；崩溃恢复据此清理断点，不能把取消变成重试。
     cancel_requested: bool,
@@ -367,7 +367,7 @@ pub struct DownloadQueue {
     /// **当前**代理。可运行中更换（`net.set_proxy` 的语义就是"不必重启进程"）。
     ///
     /// 存在这里而不是只留在 `config` 里，是因为 `config` 在 `start` 之后不可变，
-    /// 而代理会变——实测同一天内端口换了三次（`AGENTS.md` 踩坑记录 8）。
+    /// 而代理会变——实测同一天内端口换了三次（踩坑 8，见 docs/05-WORKFLOW.md 的踩坑总索引）。
     proxy: Arc<std::sync::RwLock<ProxyConfig>>,
     runtime: tokio::runtime::Handle,
 }
@@ -1849,7 +1849,7 @@ mod tests {
     }
 
     /// 代理要在**运行中**能换：`net.set_proxy` 的语义就是"不必重启进程"，
-    /// 而实际环境里代理端口一天会变好几次（`AGENTS.md` 踩坑记录 8）。
+    /// 而实际环境里代理端口一天会变好几次（踩坑 8，见 docs/05-WORKFLOW.md 的踩坑总索引）。
     /// 这条测试锁住"两个后端一起换"，避免退回"只换取数侧"的半截状态。
     #[tokio::test]
     async fn proxy_can_be_swapped_at_runtime() {

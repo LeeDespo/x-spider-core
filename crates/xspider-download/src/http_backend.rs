@@ -233,7 +233,7 @@ pub struct HttpDownloader {
     /// 客户端在 `RwLock` 后面，是为了**能换代理**。
     ///
     /// 实测：本机代理端口一天之内会变好几次，而且会整段时间不可达
-    /// （`AGENTS.md` 踩坑记录 8）。`net.set_proxy` 的存在就是为了"运行中换掉它，
+    /// （踩坑 8，见 docs/05-WORKFLOW.md 的踩坑总索引）。`net.set_proxy` 的存在就是为了"运行中换掉它，
     /// 不必重启进程"——如果下载器在构造时把代理焊死，那条承诺对下载就落空了。
     /// `reqwest::Client` 克隆廉价（内部是 `Arc`），所以取用时 clone 一份再发请求。
     client: Arc<std::sync::RwLock<reqwest::Client>>,

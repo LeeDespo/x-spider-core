@@ -8,7 +8,8 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 
 预期消费方：`x-spider-mac`（macOS SwiftUI），以及将来可能出现的 Windows / Linux 外壳。
 
-> **状态：核心 M0–M4 已完成**（2026-10-01）；当前契约为 1.5.2 PATCH。
+> **状态：核心 M0–M4 已完成**（2026-10-01）。
+> 当前契约版本：1.5.2（以 docs/CONTRACT.md 为准）
 > 下载队列支持持久化状态恢复：Waiting/Active 重启后变为 Waiting，Paused 保持暂停，
 > Error（包括取消）不会自动重试；取消任务不会自动复活，用户可在清理结束后显式恢复。
 > Android NDK 构建、sidecar 打包与构建检查已实现；模拟器/设备、Aria2Next Android 二进制与 live 网络验收状态见 [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md)。
@@ -17,6 +18,18 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 > 全部有真实响应 fixture 或真二进制 E2E 覆盖；另有一个**只经契约**的 CLI 当第一个真实消费方
 > （`bins/xspider-cli`）。进度与未决见 [`docs/ROADMAP.md`](docs/ROADMAP.md) 与
 > [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md)。
+
+## 多端适配程度
+
+| 平台 | 形态 | 状态 | 依据 |
+|---|---|---|---|
+| macOS ARM64 | sidecar + cdylib 双形态 | **已验收** | 离线质量门、双形态/CLI smoke、release 打包与 ad-hoc 签名检查通过 |
+| Android（NDK） | arm64-v8a + x86_64 的 native 包 | **部分验收** | 两个 ABI 构建打包通过；API 36 模拟器普通应用 UID 冒烟（HTTP/stdio/C ABI、本地下载、无凭据公开 TLS 探测）通过。**未验收**：账号 GraphQL live、真实 16 KB 页设备（模拟器为 4 KB 页）、Doze/后台生命周期、Aria2Next Android 后端 |
+| Windows / Linux | —— | **未开始** | 无构建与验收记录 |
+
+**未验收能力不宣称支持**：每端的逐项验收边界与证据见
+[`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) §8 与
+[`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
 ## 组件
 
@@ -37,7 +50,7 @@ X（Twitter）数据获取与下载的 **Rust 核心组件**，供不同平台�
 只有三个 C ABI 函数，所有能力都走一个入口：
 
 ```c
-char* xspider_version(void);                                  // 契约版本握手，如 "1.5.1"
+char* xspider_version(void);                                  // 契约版本握手，如 "1.5.2"
 char* xspider_call(const char* method, const char* json_in);  // 所有能力
 void  xspider_free(char* ptr);                                // 释放返回的字符串
 ```
@@ -118,7 +131,7 @@ export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.3.13750724"
 手动起 sidecar：
 
 ```bash
-cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.5.1"}
+cargo run -p xspiderd -- --port 0     # stdout 打印一行：ready {"port":N,"token":"...","version":"1.5.2"}
 
 # 另开一个终端，用上面读到的 port 与 token
 curl -s http://127.0.0.1:$PORT/ -H "X-XSpider-Token: $TOKEN" -H 'Content-Type: application/json' \
@@ -141,10 +154,12 @@ cargo run -p xspiderd -- --port 0
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | 对外契约：method 表、字段、错误码、版本策略 |
 | [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) | **接口清单**：26 个 method 的作用、只读/写属性，逐行链到接口参考 |
 | [`docs/07-API-REFERENCE.md`](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、调用时序 |
-| [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力对照**：组件 ↔ `x-spider-mac` 的逐项映射、分工与缺口 |
+| [`docs/08-CAPABILITY-MAP.md`](docs/08-CAPABILITY-MAP.md) | **能力地图**：26 个 method 的「能力 → 实现位置 → 测试覆盖」与有意不进组件的事 |
 | [`docs/10-ANDROID-INTEGRATION.md`](docs/10-ANDROID-INTEGRATION.md) | Android NDK 构建、sidecar 部署与外壳接入边界；列出尚未完成的设备验收 |
-| [`docs/11-REVIEW-RESOLUTION.md`](docs/11-REVIEW-RESOLUTION.md) | 本轮审阅发现的归并处置与未验收边界 |
-| [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册（给具体某个外壳）：改动清单、实测记录 |
+| [`docs/history/2026-10-05-review-resolution.md`](docs/history/2026-10-05-review-resolution.md) | 2026-10-05 审阅发现的归并处置与未验收边界（原 `docs/11`，已归档进 history） |
+| [`docs/06-CONSUMER-INTEGRATION.md`](docs/06-CONSUMER-INTEGRATION.md) | 接入手册：用 CLI 当「外壳替身」的接入实测与契约反馈 |
+| [`AGENTS.md`](AGENTS.md) | **开发 / Agent 规范入口**：仓库规则、必读文档的指路（踩坑正文按主题在 docs/02–05 与 12） |
+| [`docs/release.md`](docs/release.md) | **发布与分发规则**（发布事务的唯一真源）：版本基线、打包、签名、发布义务 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 决策台账（ADR）：每条决定及其「何时该被推翻」 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 里程碑、实际进度、风险台账 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 对外可见的变化 |
@@ -155,6 +170,8 @@ cargo run -p xspiderd -- --port 0
 | [`docs/04-TESTING-AND-FIXTURES.md`](docs/04-TESTING-AND-FIXTURES.md) | 测试策略：fixture 回放、live canary、契约测试 |
 | [`docs/05-WORKFLOW.md`](docs/05-WORKFLOW.md) | 工作循环、ADR 纪律、工程陷阱清单 |
 | [`fixtures/README.md`](fixtures/README.md) | fixture 怎么产生、覆盖度、**哪些缺口是有意留的** |
+
+> method 清单以 [`docs/09-METHOD-INDEX.md`](docs/09-METHOD-INDEX.md) 为准。
 
 ## 质量门
 
