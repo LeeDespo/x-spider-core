@@ -46,15 +46,15 @@
 
 | 问题 | 真源在哪 |
 |---|---|
-| 对外行为（契约） | `docs/CONTRACT.md` + `contract/xspider.schema.json`（同一契约的两种表示，必须同步改）+ 契约测试 |
-| 接口形状（入参 / 出参 / 时序） | `docs/07-API-REFERENCE.md` + `docs/09-METHOD-INDEX.md` |
-| X 上游行为 | `fixtures/`（真实响应）+ `docs/02-X-DOMAIN-NOTES.md` + 实现测试 |
-| 能力与实现位置 | `docs/08-CAPABILITY-MAP.md` |
-| 测试与 fixture 纪律 | `docs/04-TESTING-AND-FIXTURES.md` + `fixtures/README.md` |
-| 架构与决策 | `docs/01-ARCHITECTURE.md` + `docs/DECISIONS.md`（ADR） |
-| 进度与风险 | `docs/ROADMAP.md` |
-| 发布 / 打包 / 分发 | `docs/RELEASING.md` |
-| 历史（迁移 / 审阅 / 接入实录） | `docs/history/`——**默认不读**，回归调查、考古、追历史决策才查；与活文档冲突时以活文档为准 |
+| 对外行为（契约） | [docs/CONTRACT.md](docs/CONTRACT.md) + [contract/xspider.schema.json](contract/xspider.schema.json)（同一契约的两种表示，必须同步改）+ 契约测试 |
+| 接口形状（入参 / 出参 / 时序） | [docs/07-API-REFERENCE.md](docs/07-API-REFERENCE.md) + [docs/09-METHOD-INDEX.md](docs/09-METHOD-INDEX.md) |
+| X 上游行为 | `fixtures/`（真实响应）+ [docs/02-X-DOMAIN-NOTES.md](docs/02-X-DOMAIN-NOTES.md) + 实现测试 |
+| 能力与实现位置 | [docs/08-CAPABILITY-MAP.md](docs/08-CAPABILITY-MAP.md) |
+| 测试与 fixture 纪律 | [docs/04-TESTING-AND-FIXTURES.md](docs/04-TESTING-AND-FIXTURES.md) + [fixtures/README.md](fixtures/README.md) |
+| 架构与决策 | [docs/01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md) + [docs/DECISIONS.md](docs/DECISIONS.md)（ADR） |
+| 进度与风险 | [docs/ROADMAP.md](docs/ROADMAP.md) |
+| 发布 / 打包 / 分发 | [docs/RELEASING.md](docs/RELEASING.md) |
+| 历史（迁移 / 审阅 / 接入实录） | [docs/history/](docs/history/)——**默认不读**，回归调查、考古、追历史决策才查；与活文档冲突时以活文档为准 |
 
 **不要当真源的东西**：某个具体外壳的当前实现（它是消费者，不是协议）；
 `docs/history/` 里的历史记录（它是当时的证据，不是现在的要求）；
@@ -71,23 +71,23 @@
 
 | 顺序 | 文件 | 你会得到什么 |
 |---|---|---|
-| 0 | `docs/CONTRACT.md` + `contract/xspider.schema.json` | **对外契约本身**。改代码前先看它 |
-| 1 | `docs/01-ARCHITECTURE.md` | 组件边界怎么切、契约长什么样、下载引擎三种后端、任务归属 |
-| 2 | `docs/02-X-DOMAIN-NOTES.md` | X GraphQL 的领域知识与**踩过的坑**（照着做能省几周） |
-| 3 | `docs/03-FFI-SIGNING-PACKAGING.md` | FFI / 签名 / 分发 / 交叉编译的实测结论 |
-| 4 | `docs/04-TESTING-AND-FIXTURES.md` | 测试与 fixture 纪律、离线默认、live canary |
-| 5 | `docs/05-WORKFLOW.md` | 里程碑、ADR 纪律、汇报格式、工程陷阱、**踩坑总索引（§8）与命令手册（§9）** |
-| 6 | `docs/DECISIONS.md` | 已做的决定与**每条什么时候该被推翻** |
-| 7 | `docs/ROADMAP.md` | 实际进度、待办清单、风险台账 |
-| 8 | `fixtures/README.md` | fixture 怎么产生、覆盖度、**哪些缺口是有意留的** |
-| 9 | `docs/06-CONSUMER-INTEGRATION.md` | **接入手册**：接入要动哪些代码、消费者视角踩到的坑、未决清单 |
-| 10 | `docs/07-API-REFERENCE.md` | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、可直接抄的时序（写外壳时最常翻的一份） |
-| 11 | `docs/08-CAPABILITY-MAP.md` | **能力地图**：每个契约 method 在哪个 crate 实现、怎么测、当前缺口、有意不进组件的事 |
-| 12 | `docs/09-METHOD-INDEX.md` | **接口索引**：26 个 method 直达 `docs/07` 的详细章节 |
-| 13 | `docs/10-ANDROID-INTEGRATION.md` | Android 构建、部署、外壳义务与未完成的运行验收 |
-| 14 | `docs/12-RUNTIME-NOTES.md` | **运行时注记**：下载队列状态机、断点与 epoch、sidecar 生命周期与看门狗 |
-| 15 | `docs/RELEASING.md` | **发布 / 打包 / 分发必读**：版本基线、tag 纪律、资产清单、CI 发布流程 |
-| 16 | `docs/history/` | 历史归档（原审阅记录与 mac 接入专项）：**仅回归调查 / 考古时查** |
+| 0 | [docs/CONTRACT.md](docs/CONTRACT.md) + [contract/xspider.schema.json](contract/xspider.schema.json) | **对外契约本身**。改代码前先看它 |
+| 1 | [docs/01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md) | 组件边界怎么切、契约长什么样、下载引擎三种后端、任务归属 |
+| 2 | [docs/02-X-DOMAIN-NOTES.md](docs/02-X-DOMAIN-NOTES.md) | X GraphQL 的领域知识与**踩过的坑**（照着做能省几周） |
+| 3 | [docs/03-FFI-SIGNING-PACKAGING.md](docs/03-FFI-SIGNING-PACKAGING.md) | FFI / 签名 / 分发 / 交叉编译的实测结论 |
+| 4 | [docs/04-TESTING-AND-FIXTURES.md](docs/04-TESTING-AND-FIXTURES.md) | 测试与 fixture 纪律、离线默认、live canary |
+| 5 | [docs/05-WORKFLOW.md](docs/05-WORKFLOW.md) | 里程碑、ADR 纪律、汇报格式、工程陷阱、**踩坑总索引（§8）与命令手册（§9）** |
+| 6 | [docs/DECISIONS.md](docs/DECISIONS.md) | 已做的决定与**每条什么时候该被推翻** |
+| 7 | [docs/ROADMAP.md](docs/ROADMAP.md) | 实际进度、待办清单、风险台账 |
+| 8 | [fixtures/README.md](fixtures/README.md) | fixture 怎么产生、覆盖度、**哪些缺口是有意留的** |
+| 9 | [docs/06-CONSUMER-INTEGRATION.md](docs/06-CONSUMER-INTEGRATION.md) | **接入手册**：接入要动哪些代码、消费者视角踩到的坑、未决清单 |
+| 10 | [docs/07-API-REFERENCE.md](docs/07-API-REFERENCE.md) | **接口参考**：26 个 method 的入参/出参、数据形状、错误处理、可直接抄的时序（写外壳时最常翻的一份） |
+| 11 | [docs/08-CAPABILITY-MAP.md](docs/08-CAPABILITY-MAP.md) | **能力地图**：每个契约 method 在哪个 crate 实现、怎么测、当前缺口、有意不进组件的事 |
+| 12 | [docs/09-METHOD-INDEX.md](docs/09-METHOD-INDEX.md) | **接口索引**：26 个 method 直达 `docs/07` 的详细章节 |
+| 13 | [docs/10-ANDROID-INTEGRATION.md](docs/10-ANDROID-INTEGRATION.md) | Android 构建、部署、外壳义务与未完成的运行验收 |
+| 14 | [docs/12-RUNTIME-NOTES.md](docs/12-RUNTIME-NOTES.md) | **运行时注记**：下载队列状态机、断点与 epoch、sidecar 生命周期与看门狗 |
+| 15 | [docs/RELEASING.md](docs/RELEASING.md) | **发布 / 打包 / 分发必读**：版本基线、tag 纪律、资产清单、CI 发布流程 |
+| 16 | [docs/history/](docs/history/) | 历史归档（原审阅记录与 mac 接入专项）：**仅回归调查 / 考古时查** |
 
 按任务找入口（「先读」指上面表的序号）：
 

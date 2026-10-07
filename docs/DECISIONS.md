@@ -1,8 +1,11 @@
 # 决策台账（ADR）
 
 > 每条：**背景 / 选项 / 决定 / 理由 / 代价 / 何时该推翻**。
-> 纪律见 `docs/05-WORKFLOW.md` §3：定义或修改对外契约、选依赖、改组件边界、
+> 纪律见 [05-WORKFLOW.md](05-WORKFLOW.md) §3：定义或修改对外契约、选依赖、改组件边界、
 > 推翻既有结论——这四类事必须写在这里，不许默默假设。
+>
+> 相关真源：[CONTRACT.md](CONTRACT.md)（对外契约）、[01-ARCHITECTURE.md](01-ARCHITECTURE.md)（组件边界）、
+> [02-X-DOMAIN-NOTES.md](02-X-DOMAIN-NOTES.md)（X 上游行为）、[03-FFI-SIGNING-PACKAGING.md](03-FFI-SIGNING-PACKAGING.md)（构建与分发）。
 >
 > 状态：`已决定` / `待观察`（先按此执行，但预期会被真实数据推翻）/ `已推翻`
 

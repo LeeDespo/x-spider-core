@@ -4,13 +4,14 @@
 断点与下载记录、队列状态机（暂停 / 恢复 / 取消 / epoch）、以及 sidecar 的生命周期
 （父进程看门狗、幂等命中与恢复入口）。每条都来自一次真实返工，格式为「现象 → 根因 → 解法（含证据）」。
 
-分工边界：配置与分发事实（sidecar 形态、aria2-next 的版本与分发、打包、交叉编译）在 `docs/03`；
-测试纪律与 fixture 规则在 `docs/04`；引擎语义的 X 侧背景（404 报成功、JSON-RPC 错误码坍缩、
-媒体真实大小只有 CDN 知道）在 `docs/02` §E；`dl.*` 的对外入参出参与错误码以 `docs/CONTRACT.md`
-与 `docs/07` 为准。
+分工边界：配置与分发事实（sidecar 形态、aria2-next 的版本与分发、打包、交叉编译）见
+[03-FFI-SIGNING-PACKAGING.md](03-FFI-SIGNING-PACKAGING.md)；测试纪律与 fixture 规则见
+[04-TESTING-AND-FIXTURES.md](04-TESTING-AND-FIXTURES.md)；引擎语义的 X 侧背景（404 报成功、JSON-RPC 错误码坍缩、
+媒体真实大小只有 CDN 知道）见 [02-X-DOMAIN-NOTES.md](02-X-DOMAIN-NOTES.md) §E；`dl.*` 的对外入参出参与错误码以
+[CONTRACT.md](CONTRACT.md) 与 [07-API-REFERENCE.md](07-API-REFERENCE.md) 为准。
 
 条目编号沿用原 AGENTS.md 踩坑记录的编号（因此不连续，这里只收录下载运行时与 sidecar 相关的
-14 条）；正文中引用的其它坑号（如踩坑 8）可在 `docs/05-WORKFLOW.md` 的踩坑总索引里查到对应条目。
+14 条）；正文中引用的其它坑号（如踩坑 8）可在 [05-WORKFLOW.md](05-WORKFLOW.md) 的踩坑总索引里查到对应条目。
 
 ## 踩坑记录（2026-10-06 迁入自 AGENTS.md，保留原编号）
 

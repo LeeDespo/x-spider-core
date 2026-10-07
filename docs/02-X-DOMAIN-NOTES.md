@@ -15,7 +15,7 @@ X 的 GraphQL 端点对 `queryId` / `features` / `variables` 的格式极其敏�
 1. `MiningCattiva/x-spider` 的上游 TypeScript 原版（GPL-3.0）；
 2. `x-spider-mac` 接入组件之前的历史实现，尤其是 `backup/pre-component-integration`；
 3. 组件内相应的 fixture 与测试，以及本文件的踩坑记录（§G–§I；X 领域条目在 §I，
-   其余主题的踩坑总索引见 `docs/05`）。
+   其余主题的踩坑总索引见 [05-WORKFLOW.md](05-WORKFLOW.md) §8）。
 
 已接入组件的 `x-spider-mac` 当前代码主要做契约 DTO 到应用模型的映射；需要核对历史行为时，
 只读历史/备份，不修改外壳仓库，除非任务明确把它列入范围。
