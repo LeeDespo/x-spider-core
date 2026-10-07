@@ -128,19 +128,18 @@ X 偶发回吐与上一页相同的 cursor（限流/游标失效）。此时后�
 **C8. 长推文的正文在 `note_tweet.note_text`，`legacy.full_text` 是截断的。**
 超过 280 字的推文会带 `note_tweet`，此时 `legacy.full_text` 以 `…` 结尾。
 只读 `legacy.full_text` 不会报错——**它只是静默少一半内容**，这是最难发现的一类偏差。
-参考实现读的是 `item.note_tweet.note_text ?? legacy.full_text`，照它做。
+现行解析规则就是优先 `item.note_tweet.note_text`，缺失时再回退 `legacy.full_text`；对应行为由当前解析测试与 fixture 维护。
 同一次审计一并对齐的还有 `media_count`：老结构在 `legacy.media_count`，
 新结构在 `core.tweet_counts.media_tweets`（`crates/xspider-fetch/src/user.rs`）。
 
-**C9. 正文里的 t.co 链接要清洗（参考实现的两步）。**
+**C9. 正文里的 t.co 链接要按两步规则清洗。**
 1. 去掉 `entities.media[].url`——它是**那张图自己的**占位链接，媒体已经在 `medias` 里了；
 2. 其余 `entities.urls[].url` 换成 `expanded_url`，正文里才是可读链接。
 长推文的实体集在自己的 `note_tweet.entity_set` 里（**没有 `entities` 这一层**），
 形状与 `legacy.entities` 不同，两处都要过。
 
 **C10. 头像要归一化：`//` → `https://`，`_normal` → `_bigger`。**
-参考实现给外壳的就是这个值（`_normal` 是 48px，列表里会糊）。
-组件与外壳给同一个值，接入时外壳那两行替换才能删掉。
+`_normal` 尺寸偏小，列表展示会明显发糊；core 对外统一返回归一化后的 URL，消费端不应再重复做同一层替换。
 
 ---
 
