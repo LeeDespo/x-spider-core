@@ -213,7 +213,7 @@
 | 38 | 写操作成败看返回体不看状态码 | docs/02 |
 | 39 | 写测试别拿可能存在的对象当不存在 | docs/04 |
 | 40 | already_known 是幂等命中，恢复用 dl.resume | docs/12 |
-| 41 | 对照参考实现要对它给外壳的模型 | docs/02 |
+| 41 | 迁移 / 演进时要逐字段对齐契约输出，不只看请求成功 | docs/02 |
 | 42 | Swift 同句读写本地 var 触发独占性崩溃 | docs/history/mac-integration-2026-10/MIGRATION.md |
 | 43 | 交叉编译 E0463 多为 PATH 拿错 rustc | docs/03 |
 | 44 | dispatch 必须校验调用方那一轮 epoch | docs/12 |
@@ -225,7 +225,7 @@
 
 > 维护约定：命令有变直接改本节；`AGENTS.md` 不再保留副本，只留指路。
 
-**环境初始化**（一次性；迁自本地启动简报 §6，该简报不入库，其余文档此前未收录）：
+**环境初始化**（一次性）：
 
 ```bash
 # 工具链（仓库当前用 stable，并在 rust-toolchain.toml 注释实测版本；原因见 ADR-011）
@@ -247,8 +247,9 @@ $CARGO fmt --all --check
 
 # —— 下载后端（离线 E2E，用本地 HTTP fixture server）——
 $CARGO test -p xspider-download --offline            # 下载组件单元与本地 HTTP / Aria2Next E2E；以本次输出为准
-# Aria2Next E2E 需要那个二进制：XSPIDER_ARIA2_PATH 指定，或用本机随 x-spider-mac 带的那个。
-# 找不到就**大声跳过**（不是静默通过）——它覆盖的是"引擎报成功其实失败"这类骗人行为。
+# Aria2Next E2E 需要真实的 Aria2Next 二进制：用 XSPIDER_ARIA2_PATH 指向本机已下载并校验的可执行文件。
+# 找不到就**大声跳过**（不是静默通过）——它覆盖的是“引擎报成功其实失败”这类骗人行为；
+# 二进制来源与许可证要求见 NOTICE / docs/03，本手册不依赖某个消费端随包副本。
 $CARGO test -p xspider-download --offline --test aria2_e2e
 
 # —— 垂直切片：一条命令验证双形态 + 端到端 ——
@@ -265,8 +266,8 @@ $CARGO run -p xspider-cli --offline -- --screen-name tesla --count 3 --out ./dow
 
 # —— live（会消耗账号配额，默认不跑）——
 export XSPIDER_LIVE=1
-export XSPIDER_COOKIE="$(defaults read moe.keli.xspider.mac app.cookieString)"   # 只进不出，别写文件
-export XSPIDER_PROXY=http://127.0.0.1:17890                                      # 访问 x.com 需要（端口会变，见踩坑 8）
+export XSPIDER_COOKIE="<your-cookie-header>"    # 只进不出；从你自己的安全凭据来源注入，别写进仓库
+export XSPIDER_PROXY="<proxy-url>"              # 若网络环境需要代理再设置；不需要则按命令说明省略
 XSPIDER_SMOKE_SCREEN_NAME=tesla ./script/smoke.sh          # live 冒烟
 $CARGO test -p xspider-fetch --test canary_live --offline -- --ignored --nocapture   # live canary（"X 又变了"报警器）
 $CARGO test -p xspider-fetch --test record_live --offline -- --ignored --nocapture   # 录 fixture（原始响应落 raw/）
