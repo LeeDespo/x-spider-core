@@ -8,11 +8,12 @@ X-Spider Core — 第三方组件与出处声明
 
 X-Spider Core 以 GPL-3.0-only 发布（见 LICENSE）。
 
-原因是：本仓库的 X GraphQL 请求构造、分页与解析逻辑，移植自
+原因是：本仓库的 X GraphQL 请求构造、分页与解析逻辑，历史上移植自
   MiningCattiva/x-spider      （Tauri + React，GPL-3.0）
 以及其 macOS 移植
-  x-spider-mac                （本机只读参照，GPL-3.0）
+  x-spider-mac                （历史来源，GPL-3.0）
 两者都是 GPL-3.0。衍生作品必须沿用同一许可证（copyleft），因此本仓库也是 GPL-3.0-only。
+这些仓库只承担许可证 / 来源追溯作用；现行行为真源在本仓库自己的契约、fixture、测试与实现。
 
 具体受影响的部分（阅读代码时请注意）：
 - crates/xspider-fetch/src/endpoints.rs —— 端点定义与 features 常量，与上游逐字对齐；
@@ -22,23 +23,23 @@ X-Spider Core 以 GPL-3.0-only 发布（见 LICENSE）。
 2. x-client-transaction-id 算法
 -------------------------------
 
-crates/xspider-core/src/xclid.rs 的算法移植自：
+crates/xspider-core/src/xclid.rs 的算法来源链为：
   twscrape/xclid.py
-    ← 源自 iSarabjitDhiman/XClientTransaction （MIT 许可）
-    ← 再经 x-spider-mac 的 Swift 实现（Services/XClientTransaction.swift）
+    ← iSarabjitDhiman/XClientTransaction （MIT 许可）
+    ← 迁移期参考过 x-spider-mac 的历史 Swift 实现（Services/XClientTransaction.swift）
 
 上游为 MIT 许可，与本仓库的 GPL-3.0 兼容（MIT 允许被纳入 GPL 作品）。
 本文件在此保留 MIT 的出处与致谢。
 
-3. Aria2Next（**不随本仓库的源码分发**，但打包时会随产物分发）
---------------------------------------------------------------
+3. Aria2Next（**不随源码分发；发布包可选携带**）
+-----------------------------------------------
 
   仓库：AnInsomniacy/aria2-next
           https://github.com/AnInsomniacy/aria2-next
-  版本：**本项目只支持 Aria2Next**。实测环境用的是 **2.7.5**
-        （二进制随 x-spider-mac 分发，路径
-        `XSpiderMac/Resources/Binaries/aria2next`）；
-        上游最新为 2.8.3（2026-09-28 发布）。
+  版本：**本项目只支持 Aria2Next**。兼容性实测曾使用 **2.7.5**；
+        core 源码仓库不 vendoring 该二进制，`script/package.sh` 仅在显式设置
+        `XSPIDER_ARIA2_PATH` 时把指定版本带入发布包。实际分发版本必须以对应产物内
+        `ARIA2NEXT-NOTICE.txt` / 校验和为准，不在本文件维护“最新版本”。
   许可证：**GPL-2.0**（"version 2, or (at your option) any later version"）
 
 为什么只支持 Aria2Next 而不是上游 aria2：**两者的选项集与行为不同**（实测）：
@@ -62,10 +63,11 @@ crates/xspider-core/src/xclid.rs 的算法移植自：
   b) 提供对应的**源码获取方式**（上方的仓库链接 + 本包所用版本的 tag）；
   c) 在产物目录里指明所用版本号与校验和。
 
-因此：`dist/` 产物里若包含 `aria2next` 可执行文件，
-`LICENSE` / 本 NOTICE 必须一并放入（见 docs/03-FFI-SIGNING-PACKAGING.md §4、§5）。
-完整 GPL-2.0 许可证文本由仓库根目录的 `LICENSE.aria2` 提供；任何包含 Aria2Next 的
-macOS、Android 或其他平台产物都必须将该文件与二进制一同分发。
+因此：`dist/` 产物里**若包含** `aria2next` 可执行文件，
+`LICENSE.aria2`、`LICENSE`、本 NOTICE 与版本 / 校验说明必须一并放入
+（见 docs/03-FFI-SIGNING-PACKAGING.md §4、§5）。
+完整 GPL-2.0 许可证文本由仓库根目录的 `LICENSE.aria2` 提供；不携带 Aria2Next
+二进制的 core 发布包不需要假装包含该第三方程序。
 
 另外两条实测结论（都写进了代码与测试）：
 
