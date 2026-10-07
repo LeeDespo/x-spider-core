@@ -12,10 +12,11 @@
 #      不要求其内容仍是现行真源。
 #   e. 契约版本同步：README 的「当前契约版本：X.Y.Z」与 docs/CONTRACT.md 的
 #      「契约版本：**X.Y.Z**」（带星号的加粗写法）必须是同一个版本号。
-#   f. 废弃路径与第二真源扫描：tracked 的文档 / toml / CI / 脚本里不得出现
-#      docs/00-KICKOFF.md、ACCEPTANCE.md、release_plan.md、docs/release.md 字样
-#      （docs/history/ 允许作为历史证据提及；docs_guard.sh 自身包含这些字面量，
-#      是检查逻辑本身，排除）。
+#   f. 废弃路径与第二真源扫描：tracked 的活跃文档 / toml / CI / 脚本里不得出现
+#      docs/00-KICKOFF.md、ACCEPTANCE.md、release_plan.md、docs/release.md，
+#      也不得依赖已退役的 mac 历史 branch/tag 指针（pre-component-integration、
+#      backup/local-reorg-20261007）。docs/history/ 允许作为历史证据提及；
+#      docs_guard.sh 自身包含这些字面量，是检查逻辑本身，排除。
 # 用法：bash script/docs_guard.sh（脚本自动切到仓库根，任意目录可运行）。
 # 注意：AGENTS.md 尚未提交时检查 a 会失败——这是护栏本意，不是误报。
 # 写法约定：双引号里紧跟中文标点的变量引用一律写作 ${var}——bash 在某些 locale
@@ -156,7 +157,7 @@ if [ "${e_bad}" -eq 0 ]; then
 fi
 
 # ---------- 检查 f：废弃路径与第二真源扫描 ----------
-echo "检查 f：tracked 文件不引用已淘汰 / 本地忽略的文档路径（docs/00-KICKOFF.md、ACCEPTANCE.md、release_plan.md、docs/release.md）"
+echo "检查 f：tracked 活跃文件不引用已淘汰文档路径或外部历史 branch/tag 指针"
 f_bad=0
 # 扫描范围：文档 / toml / CI / 脚本。docs/history/ 是历史证据，允许提及当年的文件名；
 # docs_guard.sh 自身包含这些字面量（检查逻辑本身），两者都排除。
@@ -169,8 +170,8 @@ if [ -z "${scan_files}" ]; then
 fi
 if [ -n "${scan_files}" ]; then
   while IFS= read -r f; do
-    if grep -nHE 'docs/00-KICKOFF\.md|ACCEPTANCE\.md|release_plan\.md|docs/release\.md' -- "${f}"; then
-      report_fail "${f} 引用了已淘汰 / 本地忽略的文档路径（行号见上）。活跃文件不得依赖它们；历史材料放 docs/history/ 并用文字说明。"
+    if grep -nHE 'docs/00-KICKOFF\.md|ACCEPTANCE\.md|release_plan\.md|docs/release\.md|pre-component-integration|backup/local-reorg-20261007' -- "${f}"; then
+      report_fail "${f} 引用了已淘汰文档路径或外部历史 branch/tag 指针（行号见上）。活跃文件不得依赖它们；历史材料放 docs/history/ 并用文字说明。"
       f_bad=1
     fi
   done <<< "${scan_files}"
