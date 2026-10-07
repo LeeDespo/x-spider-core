@@ -1,8 +1,8 @@
 # 02 · X 领域知识（**不要重踩**）
 
-> 这一节的内容来自 `x-spider-mac` 接入组件之前的历史实现及其上游（Tauri + React 的
-> `MiningCattiva/x-spider`）实测结论。当前 mac 外壳已改为调用组件；行为参照只看其历史或
-> `backup/pre-component-integration`，不要把当前 `TwitterAPI` 当作取数实现答案。
+> 本册维护 **X 上游行为的现行知识**。事实优先由本仓库的真实 fixture、live canary、
+> 解析 / 请求测试与当前实现交叉验证；迁移期的历史来源与 parity 记录只作考古证据，
+> 已归档在 `docs/history/mac-integration-2026-10/`。
 > 每一条都是**真金白银的返工**换来的，照着做能省几周。
 
 ---
@@ -12,16 +12,15 @@
 X 的 GraphQL 端点对 `queryId` / `features` / `variables` 的格式极其敏感，分页语义也有坑。
 
 **行为参照顺序**：
-1. `MiningCattiva/x-spider` 的上游 TypeScript 原版（GPL-3.0）；
-2. `x-spider-mac` 接入组件之前的历史实现，尤其是 `backup/pre-component-integration`；
-3. 组件内相应的 fixture 与测试，以及本文件的踩坑记录（§G–§I；X 领域条目在 §I，
-   其余主题的踩坑总索引见 [05-WORKFLOW.md](05-WORKFLOW.md) §8）。
+1. 本仓库的真实 fixture、live canary 与针对该行为的测试；
+2. 当前实现 + 本文件已有的 X 域事实（§G–§I；其余主题的踩坑总索引见
+   [05-WORKFLOW.md](05-WORKFLOW.md) §8）；
+3. 仅当现有证据不足时，再做外部历史考古；得到的新事实必须回填为本仓库 fixture / 测试 /
+   文档，不让外部旧仓库成为长期依赖。
 
-已接入组件的 `x-spider-mac` 当前代码主要做契约 DTO 到应用模型的映射；需要核对历史行为时，
-只读历史/备份，不修改外壳仓库，除非任务明确把它列入范围。
-
-**凡是要动请求构造或分页逻辑，先读上游对应函数，逐字对齐，再动手。**
-不要"顺手优化"请求格式——你以为的优化通常是 404 或空页的来源。
+**凡是要动请求构造或分页逻辑，先确认现有 fixture 与测试钉住了什么，再改代码。**
+不要"顺手优化"请求格式——你以为的优化通常是 404 或空页的来源；若 live 证明现行行为已变化，
+先录制 / 脱敏新证据，再同步实现与测试。
 
 ---
 
@@ -42,8 +41,9 @@ GET 一律 404。**且这个 404 与 queryId 无关**——实测新旧两个 qu
 
 **A4. `x-client-transaction-id` 需要按 X 的算法生成。**
 涉及首页抓取 + 贝塞尔曲线动画状态推导。这是最容易被忽略、也最容易因改版失效的一块：
-**单独成模块、单独测**，不要在请求组装里内联。参考 `x-spider-mac` 接入组件前的历史版本（现行接入分支已删除该文件）；不要依赖当前路径，
-需要核对时从 `backup/pre-component-integration` 或 Git 历史读取。
+**单独成模块、单独测**，不要在请求组装里内联。现行实现与回归测试以
+`crates/xspider-core/src/xclid.rs` 为准；来源链与迁移背景见根目录 `NOTICE` 和历史归档，
+不要把外部旧源码当成运行期依赖。
 
 **A5. headers 要与上游一致**：user-agent、`x-csrf-token`（= cookie 里的 `ct0`）、
 `x-twitter-auth-type`、`x-twitter-active-user` 等。少一个就可能 403 或返回空数据。
@@ -417,11 +417,11 @@ URLSession 的 `resumeData` 与 aria2 的半成品拼在一起会产出损坏文
 完整规则与实现（`ensure_mutation_succeeded`）已并入 §A7；
 教训：**"2xx 就是成功"这条直觉在写操作上不成立**，在只读端点上也要小心。
 
-**41. 对照参考实现要对着"它给外壳的模型"，不是"它发出的请求"。**
-- 现象：接入后**引用推文在界面上只剩空壳**。参考实现有 `mapQuotedPost`
-  （从 `quoted_status_result` 解析出被引用推文），而紧凑的契约只有 `quoted_id`。
-- 根因：抽取时我按"请求怎么发"逐条对齐，而"给外壳的数据长什么样"这一层
-  （`includeQuoted` 是个**入参开关**，说明它给过内嵌对象）被漏掉了。
-- 解法：契约 1.4.0 已给 `post` / `reply` 加 `quoted`（只嵌一层、不递归），见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.1。
-- 教训：对照清单里**要把"参考实现 DTO 的每个可选字段"列一行**，
-  特别是那些由入参开关控制的字段——开关本身就是"这里曾经有两种形态"的证据。
+**41. 迁移 / 演进时要对齐“给消费端的可观察模型”，不只对齐“请求怎么发”。**
+- 现象：迁移期曾出现**引用推文在界面上只剩空壳**；请求本身成功，但契约只暴露
+  `quoted_id`，漏掉了消费端实际需要的内嵌引用对象。
+- 根因：只审了请求路径，没有逐字段审 DTO / 契约的可观察结果。
+- 解法：契约 1.4.0 已给 `post` / `reply` 加 `quoted`（只嵌一层、不递归），
+  历史证据见 `docs/history/mac-integration-2026-10/CAPABILITY-PARITY.md` §5.1。
+- 教训：做 parity、重构或换上游响应形态时，**要逐字段检查契约输出**；请求能成功不等于
+  消费端得到的信息完整。
