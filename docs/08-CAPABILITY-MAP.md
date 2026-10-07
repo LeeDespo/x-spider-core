@@ -7,7 +7,7 @@
 > （`crates/xspider-ffi/tests/contract_guard.rs`）钉住。
 >
 > 怎么调、入参出参、错误码见 [`07-API-REFERENCE.md`](07-API-REFERENCE.md)；
-> 与参考实现 `x-spider-mac` 的逐项对照（迁移期审计）已归档到
+> 迁移期与 `x-spider-mac` 的逐项 parity 对照已归档到
 > [`history/mac-integration-2026-10/CAPABILITY-PARITY.md`](history/mac-integration-2026-10/CAPABILITY-PARITY.md)。
 
 ---
@@ -45,7 +45,7 @@
 | 主页时间线（`for_you` / `following` 两模式） | `fetch.home_timeline` | `crates/xspider-fetch/src/timeline.rs` | fixture `home_timeline/{for_you,following}`（两种 operation 各一页）；回放：两种模式；canary（两模式各一次） |
 | 关注列表 | `fetch.following` | `crates/xspider-fetch/src/timeline.rs` | fixture `following/page1`；回放：用户解析；canary |
 | 关注态（v1.1 `friendships/show`；缓存"我是谁"，换 cookie 自动失效） | `fetch.is_following` | `crates/xspider-fetch/src/social.rs` | **本仓库未发现专属离线用例**（无 fixture / 回放 / canary，2026-10-06 核对）；结构对不上时报 `parse`，不默默返回 `false` |
-| **写操作**：点赞 / 转推 / 书签 / 关注（8 种 `action`） | `fetch.mutate` | `crates/xspider-fetch/src/social.rs`（`ensure_mutation_succeeded` 按**响应体** `errors[].code` 判定，不看 HTTP 状态码） | `social.rs` 单元测试：8 种 action 解析、variables 形状对齐参考实现、成功与否按 body 判定、从真实页面样本抽字段；**无 HTTP fixture / canary**（写操作会对真实账号生效） |
+| **写操作**：点赞 / 转推 / 书签 / 关注（8 种 `action`） | `fetch.mutate` | `crates/xspider-fetch/src/social.rs`（`ensure_mutation_succeeded` 按**响应体** `errors[].code` 判定，不看 HTTP 状态码） | `social.rs` 单元测试：8 种 action 解析、variables 形状与当前端点测试一致、成功与否按 body 判定、从真实页面样本抽字段；**无 HTTP fixture / canary**（写操作会对真实账号生效） |
 
 ### 1.4 下载（`dl.*`，8）
 
