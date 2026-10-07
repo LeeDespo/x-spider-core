@@ -9,7 +9,7 @@
 
 ## 1. 为什么主形态是 sidecar 而不是 dylib
 
-**实测环境**：`x-spider-mac` 的 Release 产物（ad-hoc 签名，无 hardened runtime）。
+**历史实测环境**：ad-hoc 签名、未启用 hardened runtime 的 macOS 外壳产物；当时使用 `x-spider-mac` 做宿主验证。结论已固化为本仓库的签名 / 打包测试，日常开发不依赖该消费端历史源码。
 
 | 场景 | 结果 | 结论 |
 |---|---|---|
@@ -62,11 +62,11 @@
 
 | 项 | 值 |
 |---|---|
-| 仓库 | `AnInsomniacy/aria2-next`（"Redefining the next generation of aria2"，约 567 star，活跃） |
-| 版本 | **v2.8.3**（2026-09-28 发布） |
+| 仓库 | `AnInsomniacy/aria2-next`（Aria2Next 项目；版本与资产以其 Release 为准） |
+| 版本 | 本仓库不维护“最新版本”；兼容性实测版本与实际分发版本分别见本节历史记录和发布包内说明 |
 | 许可证 | **GPL-2.0** |
 | 预编译资产 | `macos-arm64` / `macos-x86_64` / `linux-x86_64` / `linux-aarch64` / `windows-x86_64.exe` / `windows-arm64.exe` / `android-arm64` + `checksums.sha256` |
-| 当时外壳通过 `XSPIDER_ARIA2_PATH` 提供的版本 | **2.7.5**（2026-10-01 的本机记录；不是本仓库 vendor） |
+| 迁移期兼容性实测 | **2.7.5**（2026-10-01 历史记录；不是本仓库 vendor，也不是当前版本约束） |
 
 **补充实测（2026-10-01，Aria2Next 2.7.5，arm64）**：
 
