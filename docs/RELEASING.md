@@ -341,10 +341,10 @@ macos       android（matrix: arm64-v8a / x86_64）
 
 ## 7. 许可证与分发义务
 
-- 本仓库 **GPL-3.0-only**：请求构造、分页与解析逻辑移植自 GPL-3.0 的
+- 本仓库 **GPL-3.0-only**：请求构造、分页与解析逻辑历史上移植自 GPL-3.0 的
   [MiningCattiva/x-spider](https://github.com/MiningCattiva/x-spider) 及其 macOS 移植
-  `x-spider-mac`，衍生作品须沿用同一许可证；README 必须保留出处声明（现已具备，
-  `README.md` §许可证）。
+  `x-spider-mac`，衍生作品须沿用同一许可证；这些项目只承担来源 / 许可证追溯作用，
+  现行行为真源在本仓库。README 必须保留出处声明（现已具备，`README.md` §许可证）。
 - **Aria2Next 是独立的 GPL-2.0 程序**（`AnInsomniacy/aria2-next`）：本组件通过
   「子进程 + JSON-RPC」调用，属聚合，不传染本仓库许可证；但**随包分发其二进制时必须**：
   附 GPL-2.0 完整文本（`LICENSE.aria2`）、提供源码获取方式、标明所用版本与 sha256
@@ -361,10 +361,10 @@ macos       android（matrix: arm64-v8a / x86_64）
 
 ### 8.1 现行规则（已生效）
 
-唯一已接入的消费方是 `x-spider-mac`（macOS SwiftUI 外壳）。它是本组件的**消费方**：
-组件的查找顺序、部署目录与更新方式以外壳仓库自己的文档为准（其 `docs/DEVELOPMENT.md`
-§2.7：**外部目录优先**；更新组件 = 换文件 + 重新 ad-hoc 签名，不必重新构建应用）。
-与本仓库相关的两条纪律，外壳与发布侧都必须遵守：
+唯一已接入的产品消费方是 `x-spider-mac`（macOS SwiftUI 外壳）。它是本组件的**消费方**：
+组件的查找顺序、部署目录、随包账本与更新方式以外壳仓库自己的
+`docs/COMPONENTS.md` 为准；core 不复制消费端部署细节。与本仓库发布物直接相关的
+macOS 两条纪律仍必须遵守：
 
 ```bash
 DIR=~/Library/Application\ Support/moe.keli.xspider.mac/XSpiderCore
@@ -379,9 +379,11 @@ codesign --force --sign - "$DIR"/xspiderd "$DIR"/aria2next   # ad-hoc 签名
 
 - GitHub Release 渠道**已存在**：`v0.1.0`（2026-10-04 手工发布，契约 1.5.1，
   仅 macOS 资产；Android 包构建于其后，从未进入任何 Release）；
-- 此前的分发现状 = `x-spider-mac` 随包携带组件 + 本地 `dist/` 打包
-  （`dist/` 被 `.gitignore` 忽略，是本地构建产物，不是发布物）；
-- **尚未建立**的是本文件定义的完整发布制度：release.yml 自动发布（§6）、
+- `x-spider-mac` 已建立消费端组件账本：`components.lock.json` 固定
+  `repository / tag / asset / version / sha256`，`update_components.sh` 从固定 Release
+  资产更新并回写账本；应用仍可随包携带兜底副本，也支持外部目录覆盖；
+- 本仓库本地 `dist/` 仍只是构建产物（被 `.gitignore` 忽略），正式分发面是 GitHub Release；
+- **尚未建立**的是本文件定义的完整发布自动化：`release.yml`（§6）、
   manifest 三件套（§4.4–§4.5）、Android 资产进入 Release（§4.3）。
 
 ### 8.3 目标更新链（规格，尚未落地）
@@ -400,8 +402,10 @@ codesign --force --sign - "$DIR"/xspiderd "$DIR"/aria2next   # ad-hoc 签名
 启动握手核对契约版本（外壳已有：主版本 1.x 兼容检查）
 ```
 
-在此之前，§8.1 的手工换文件 + 签名方式继续有效；§5 的 tag / clean tree / 三位一体纪律
-对手工分发同样生效。
+当前 mac 消费端已经能按固定 tag / asset 更新并校验随包副本；但由于 core 还没有
+`release-manifest.json` / 顶层 `SHA256SUMS`，消费端尚不能执行本节完整的“manifest 驱动”
+更新链。在这些发布资产落地前，消费端自己的 lock + SHA256 校验与 §8.1 的签名纪律继续有效；
+§5 的 tag / clean tree / 三位一体纪律对任何发布同样生效。
 
 ---
 
@@ -525,7 +529,7 @@ tag 与 Cargo.toml 组件版本不一致
 | 每包 manifest.json 生成 | 未落地（`package.sh` / `android-build.sh` 均未生成） | §4.4 规格 |
 | 顶层 release-manifest.json / SHA256SUMS / THIRD-PARTY-LICENSES.txt | 未落地（现为每包 `.sha256` + 包内 NOTICE/LICENSE.aria2） | 随 release.yml 或先行脚本化 |
 | Android 资产进入 Release | 未发生（v0.1.0 无 Android 资产） | 上两行落地后随下一版发布 |
-| `x-spider-mac` 改为消费 Release 固定资产 | 未发生（现状：随包携带 + 外部目录手工替换 + 签名，§8.1） | 本仓库首个按新制度发布的 Release |
+| `x-spider-mac` 锁定 Release 固定资产 | **已完成**：消费端 `components.lock.json` 记录 repository/tag/asset/version/sha256，升级脚本按固定 Release 拉取并校验 | 完整 manifest 驱动更新仍依赖上两行发布资产 |
 
 过渡期（上表未落地期间）的分发维持 §8.2 现状，但 §5 的 tag / clean tree / 三位一体纪律、
 §7 的许可证义务与 §10 的禁止事项，从现在起对**任何手工分发**同样生效。
